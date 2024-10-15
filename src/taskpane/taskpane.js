@@ -28,11 +28,12 @@ async function getListInfoFromSelection() {
         // Remove non-printable characters
         text = text.replace(/[^\x20-\x7E]/g, "");
 
-        // Remove a leading dot if present
-        if (text.startsWith(".")) {
+        // Remove a leading dot if present and no parent numbering exists
+        if (text.startsWith(".") && parentNumbering.length === 0) {
           text = text.substring(1).trim();
         }
 
+        // Skip if the text is too short to be meaningful
         if (text.length <= 1) {
           continue;
         }
@@ -44,21 +45,29 @@ async function getListInfoFromSelection() {
           const level = paragraph.listItem.level;
           const listString = paragraph.listItem.listString || "";
 
+          // Adjust the parentNumbering array based on the current level
           if (level <= parentNumbering.length) {
             parentNumbering = parentNumbering.slice(0, level);
           }
           parentNumbering[level] = listString;
 
-          const fullNumbering = parentNumbering.slice(0, level + 1).join(".");
+          // Concatenate the numbering (removing any leading dot)
+          const fullNumbering = parentNumbering
+            .slice(0, level + 1)
+            .filter((num) => num)
+            .join(".");
 
+          // Append list item to clipboard data
           clipboardData.push(`"${fullNumbering}": "${text}"`);
         } else {
+          // Handle paragraphs with no list numbering
           const parentKey = parentNumbering.length > 0 ? parentNumbering.join(".") : `paragraph_${paragraphCounter}`;
           clipboardData.push(`"${parentKey}.text": "${text}"`);
           paragraphCounter++;
         }
       }
 
+      // Format the data as a string and copy it to the clipboard
       const clipboardString = `{\n${clipboardData.join(",\n")}\n}`;
       copyToClipboard(clipboardString);
 
