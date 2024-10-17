@@ -1,6 +1,11 @@
+let clipboardData = [];
+let parentNumbering = [];
+let lastParentKey = "";
+
 Office.onReady((info) => {
   if (info.host === Office.HostType.Word) {
     document.getElementById("logStyleContentButton").onclick = getListInfoFromSelection;
+    document.getElementById("clearContentButton").onclick = clearCopiedContent;
   }
 });
 
@@ -8,13 +13,10 @@ async function getListInfoFromSelection() {
   try {
     await Word.run(async (context) => {
       const selection = context.document.getSelection();
-      const selectionRange = selection.getRange();
-      const paragraphs = selectionRange.paragraphs;
+      const paragraphs = selection.paragraphs;
       paragraphs.load("items");
       await context.sync();
 
-      let clipboardData = [];
-      let parentNumbering = [];
       let paragraphCounter = 1;
 
       for (let i = 0; i < paragraphs.items.length; i++) {
@@ -25,15 +27,8 @@ async function getListInfoFromSelection() {
         let text = paragraph.text.trim();
         const isListItem = paragraph.isListItem;
 
-        // Remove non-printable characters
         text = text.replace(/[^\x20-\x7E]/g, "");
 
-        // Remove a leading dot if present and no parent numbering exists
-        if (text.startsWith(".") && parentNumbering.length === 0) {
-          text = text.substring(1).trim();
-        }
-
-        // Skip if the text is too short to be meaningful
         if (text.length <= 1) {
           continue;
         }
@@ -49,26 +44,30 @@ async function getListInfoFromSelection() {
           if (level <= parentNumbering.length) {
             parentNumbering = parentNumbering.slice(0, level);
           }
+
           parentNumbering[level] = listString;
 
-          // Concatenate the numbering (removing any leading dot)
-          const fullNumbering = parentNumbering
-            .slice(0, level + 1)
-            .filter((num) => num)
-            .join(".");
+          let fullNumbering = "";
+          for (let j = 0; j <= level; j++) {
+            if (parentNumbering[j]) {
+              fullNumbering += `${parentNumbering[j]}.`;
+            }
+          }
 
-          // Append list item to clipboard data
-          clipboardData.push(`"${fullNumbering}": "${text}"`);
+          fullNumbering = fullNumbering.replace(/\.$/, "");
+          clipboardData.push({ key: fullNumbering, value: text });
+
+          lastParentKey = fullNumbering;
         } else {
-          // Handle paragraphs with no list numbering
-          const parentKey = parentNumbering.length > 0 ? parentNumbering.join(".") : `paragraph_${paragraphCounter}`;
-          clipboardData.push(`"${parentKey}.text": "${text}"`);
+          const parentKey = lastParentKey || `paragraph_${paragraphCounter}`;
+          clipboardData.push({ key: parentKey + ".text", value: text });
           paragraphCounter++;
         }
       }
 
-      // Format the data as a string and copy it to the clipboard
-      const clipboardString = `{\n${clipboardData.join(",\n")}\n}`;
+      updateCopiedContentDisplay();
+
+      const clipboardString = formatClipboardData();
       copyToClipboard(clipboardString);
 
       console.log("All data copied to clipboard:");
@@ -80,6 +79,26 @@ async function getListInfoFromSelection() {
       console.error("Debug info:", error.debugInfo);
     }
   }
+}
+
+function formatClipboardData() {
+  return `{\n${clipboardData.map((pair) => `"${pair.key}": "${pair.value}"`).join(",\n")}\n}`;
+}
+
+function updateCopiedContentDisplay() {
+  const copiedContentElement = document.getElementById("copiedContent");
+
+  copiedContentElement.innerHTML = "";
+
+  clipboardData.forEach((pair) => {
+    const keySpan = `<span class="key">${pair.key}</span>`;
+    const valueSpan = `<span class="value">${pair.value}</span>`;
+
+    const formattedPair = `<div class="pair">${keySpan}: ${valueSpan}</div>`;
+    copiedContentElement.innerHTML += formattedPair;
+  });
+
+  copiedContentElement.scrollTop = copiedContentElement.scrollHeight;
 }
 
 function copyToClipboard(text) {
@@ -112,4 +131,11 @@ function copyToClipboard(text) {
   }
 
   document.body.removeChild(textArea);
+}
+
+function clearCopiedContent() {
+  clipboardData = [];
+  parentNumbering = [];
+  lastParentKey = "";
+  document.getElementById("copiedContent").innerText = "";
 }

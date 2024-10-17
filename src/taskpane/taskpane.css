@@ -105,3 +105,47 @@ button:disabled {
     border-radius: 5px;
     background-color: white;
 }
+
+#copiedContent {
+  white-space: pre-wrap;
+  margin-top: 10px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  padding: 10px;
+  background-color: #f7f7f7;
+  color: #333;
+}
+
+#copiedContent .key {
+  font-weight: bold;
+  color: #333333; 
+  font-size: 15px;  
+}
+
+#copiedContent .value {
+  color: #555555; 
+  padding-left: 10px;
+}
+
+#copiedContent .pair {
+  margin-bottom: 8px;
+}
+
+#copiedContent .braces {
+  font-weight: bold;
+  color: #888888;
+}
+
+#clearContentButton {
+  margin-top: 10px;
+}
+
+#copyMessage {
+  display: none;
+  color: green;
+  margin-bottom: 10px;
+}
