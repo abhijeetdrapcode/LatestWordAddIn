@@ -11,6 +11,9 @@ Office.onReady((info) => {
 
 async function getListInfoFromSelection() {
   try {
+    parentNumbering = [];
+    lastParentKey = "";
+
     await Word.run(async (context) => {
       const selection = context.document.getSelection();
       const paragraphs = selection.paragraphs;
