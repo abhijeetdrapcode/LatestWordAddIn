@@ -1,20 +1,152 @@
-let clipboardData = [];
+/* eslint-disable office-addins/load-object-before-read */
+/* eslint-disable office-addins/call-sync-before-read */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
+let categoryData = {
+  closing: [],
+  postClosing: [],
+  representation: [],
+};
+
 let allParagraphsData = [];
 let isDataLoaded = false;
+let documentContentHash = "";
 
+// Initialize Word operations when Office is ready
 Office.onReady((info) => {
   if (info.host === Office.HostType.Word) {
-    const logStyleContentButton = document.getElementById("logStyleContentButton");
-    logStyleContentButton.disabled = true;
-    logStyleContentButton.onclick = getListInfoFromSelection;
-    document.getElementById("clearContentButton").onclick = clearCopiedContent;
-    loadAllParagraphsData();
+    initWordOperations();
   }
 });
+
+function initWordOperations() {
+  const logStyleContentButton = document.getElementById("logStyleContentButton");
+  const categorySelect = document.getElementById("categorySelect");
+  const reloadButton = document.getElementById("reloadButton");
+  const dismissButton = document.getElementById("dismissNotification");
+
+  logStyleContentButton.disabled = true;
+  logStyleContentButton.onclick = getListInfoFromSelection;
+  document.getElementById("clearContentButton").onclick = clearCurrentContent;
+  reloadButton.onclick = handleReloadContent;
+
+  if (dismissButton) {
+    dismissButton.onclick = dismissChangeNotification;
+  }
+
+  categorySelect.onchange = handleCategoryChange;
+  handleCategoryChange();
+
+  setInitialContentHash();
+  setInterval(checkForDocumentChanges, 2000);
+  loadAllParagraphsData();
+}
+
+async function setInitialContentHash() {
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+      documentContentHash = await calculateHash(body.text);
+    });
+  } catch (error) {
+    console.error("Error setting initial content hash:", error);
+  }
+}
+
+function dismissChangeNotification() {
+  const changeNotification = document.getElementById("changeNotification");
+  if (changeNotification) {
+    changeNotification.style.display = "none";
+  }
+}
+
+async function calculateHash(text) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function checkForDocumentChanges() {
+  try {
+    await Word.run(async (context) => {
+      const body = context.document.body;
+      body.load("text");
+      await context.sync();
+
+      const currentHash = await calculateHash(body.text);
+
+      if (currentHash !== documentContentHash) {
+        documentContentHash = currentHash;
+        const changeNotification = document.getElementById("changeNotification");
+        if (changeNotification) {
+          changeNotification.style.display = "block";
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error checking for document changes:", error);
+  }
+}
+
+async function handleReloadContent() {
+  const changeNotification = document.getElementById("changeNotification");
+  if (changeNotification) {
+    changeNotification.style.display = "none";
+  }
+  await setInitialContentHash();
+  await loadAllParagraphsData();
+}
+
+async function handleCategoryChange() {
+  const categorySelect = document.getElementById("categorySelect");
+  const selectedCategory = categorySelect.value;
+
+  document.querySelectorAll(".category-content").forEach((section) => {
+    section.classList.remove("active");
+  });
+
+  const contentId = `${selectedCategory}Content`;
+  document.getElementById(contentId).classList.add("active");
+
+  document.getElementById("logStyleContentButton").disabled = !isDataLoaded || !selectedCategory;
+
+  if (selectedCategory && categoryData[selectedCategory]) {
+    const clipboardString = formatCategoryData(selectedCategory);
+    await silentCopyToClipboard(clipboardString);
+  }
+}
+
+async function silentCopyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    console.log("Fallback: using execCommand for copy");
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    textArea.style.top = "-9999px";
+    document.body.appendChild(textArea);
+
+    try {
+      textArea.select();
+      document.execCommand("copy");
+    } catch (err) {
+      console.error("Failed to copy text:", err);
+    } finally {
+      document.body.removeChild(textArea);
+    }
+  }
+}
 
 function normalizeText(text) {
   return text
     .trim()
+    .replace(/^\.\s*/, "")
     .replace(/\s+/g, " ")
     .replace(/[^\x20-\x7E]/g, "");
 }
@@ -24,90 +156,86 @@ async function loadAllParagraphsData() {
     await Word.run(async (context) => {
       const body = context.document.body;
       const paragraphs = body.paragraphs;
-      paragraphs.load("items");
+
+      paragraphs.load("items, items/text, items/isListItem");
       await context.sync();
 
-      allParagraphsData = [];
       let parentNumbering = [];
       let lastNumbering = "";
+      const today = new Date().toISOString().split("T")[0];
+
+      document.getElementById("logStyleContentButton").disabled = true;
+      isDataLoaded = false;
+
+      const listItems = paragraphs.items.filter((p) => p.isListItem);
+      listItems.forEach((item) => item.listItem.load("level, listString"));
+      await context.sync();
 
       for (let i = 0; i < paragraphs.items.length; i++) {
         const paragraph = paragraphs.items[i];
-        paragraph.load("text,isListItem");
-        await context.sync();
+        const text = normalizeText(paragraph.text);
 
-        let text = normalizeText(paragraph.text);
+        if (text.length <= 1) continue;
 
-        if (text.length <= 1) {
-          continue;
-        }
+        let existingItem = allParagraphsData.find((item) => item.index === i);
+        let revisedKey = "";
 
         if (paragraph.isListItem) {
-          paragraph.listItem.load("level,listString");
-          await context.sync();
-
-          const level = paragraph.listItem.level;
-          const listString = paragraph.listItem.listString || "";
+          const listItem = paragraph.listItem;
+          const level = listItem.level;
+          const listString = listItem.listString || "";
 
           if (level <= parentNumbering.length) {
             parentNumbering = parentNumbering.slice(0, level);
           }
-
           parentNumbering[level] = listString;
 
-          let fullNumbering = "";
-          for (let j = 0; j <= level; j++) {
-            if (parentNumbering[j]) {
-              fullNumbering += `${parentNumbering[j]}.`;
-            }
-          }
-
-          fullNumbering = fullNumbering.replace(/\.$/, "");
+          const fullNumbering = parentNumbering
+            .slice(0, level + 1)
+            .filter(Boolean)
+            .join(".");
           lastNumbering = fullNumbering;
 
+          if (existingItem && existingItem.value !== text) {
+            revisedKey = `${fullNumbering} [Revised ${today}]`;
+          } else {
+            revisedKey = fullNumbering;
+          }
+
           allParagraphsData.push({
-            key: fullNumbering,
+            key: revisedKey,
             value: text,
-            originalText: paragraph.text.trim(),
+            originalText: paragraph.text.trim().replace(/^\.\s*/, ""),
             isListItem: true,
+            index: i,
+            level: level,
+            listString: listString,
+            parentNumbers: [...parentNumbering],
           });
         } else {
-          // Non-numbered paragraphs get `(text)` appended to the last valid numbering
-          const key = lastNumbering ? `${lastNumbering} (text)` : `text_${i + 1}`;
+          const baseKey = lastNumbering ? `${lastNumbering} (text)` : `text_${i + 1}`;
+
+          if (existingItem && existingItem.value !== text) {
+            revisedKey = `${baseKey} [Revised ${today}]`;
+          } else {
+            revisedKey = baseKey;
+          }
+
           allParagraphsData.push({
-            key: key,
+            key: revisedKey,
             value: text,
-            originalText: paragraph.text.trim(),
+            originalText: paragraph.text.trim().replace(/^\.\s*/, ""),
             isListItem: false,
+            index: i,
+            level: -1,
           });
         }
       }
 
-      allParagraphsData.forEach((item) => {
-        if (item.key.endsWith(".text")) {
-          allParagraphsData.push({
-            key: item.key.replace(".text", ""),
-            value: item.value,
-            originalText: item.originalText,
-            isListItem: false,
-          });
-        }
-      });
-
       allParagraphsData = allParagraphsData.filter((item) => !item.key.endsWith(".text"));
 
-      allParagraphsData.sort((a, b) => {
-        const aMatch = a.key.match(/(\d+)(?=\.)/);
-        const bMatch = b.key.match(/(\d+)(?=\.)/);
-
-        if (aMatch && bMatch) {
-          return parseInt(aMatch[0]) - parseInt(bMatch[0]);
-        }
-        return a.key.localeCompare(b.key);
-      });
-
-      console.log("All paragraphs data loaded:", allParagraphsData);
-      document.getElementById("logStyleContentButton").disabled = false;
+      const categorySelect = document.getElementById("categorySelect");
+      document.getElementById("logStyleContentButton").disabled = !categorySelect.value;
       isDataLoaded = true;
     });
   } catch (error) {
@@ -115,7 +243,8 @@ async function loadAllParagraphsData() {
     if (error instanceof OfficeExtension.Error) {
       console.error("Debug info:", error.debugInfo);
     }
-    document.getElementById("logStyleContentButton").disabled = false;
+    document.getElementById("logStyleContentButton").disabled = true;
+    isDataLoaded = false;
   }
 }
 
@@ -125,111 +254,246 @@ async function getListInfoFromSelection() {
     return;
   }
 
+  const selectedCategory = document.getElementById("categorySelect").value;
+  console.log("Selected Category:", selectedCategory);
+
+  if (!selectedCategory) {
+    console.log("No category selected");
+    return;
+  }
+
   try {
     await Word.run(async (context) => {
       const selection = context.document.getSelection();
       const paragraphs = selection.paragraphs;
+
       paragraphs.load("items");
+      await context.sync();
+
+      const paragraphPromises = paragraphs.items.map((paragraph) => {
+        paragraph.load("text,isListItem");
+        if (paragraph.isListItem) {
+          paragraph.listItem.load("level,listString");
+        }
+        return paragraph;
+      });
+
       await context.sync();
 
       let newSelections = [];
 
-      for (let i = 0; i < paragraphs.items.length; i++) {
-        const selectedParagraph = paragraphs.items[i];
-        selectedParagraph.load("text");
-        await context.sync();
-
-        const selectedText = selectedParagraph.text.trim();
+      for (const paragraph of paragraphs.items) {
+        const selectedText = paragraph.text.trim().replace(/^\.\s*/, "");
         const normalizedSelectedText = normalizeText(selectedText);
 
-        const matchingParagraphData = allParagraphsData.find(
+        const matchingParagraphs = allParagraphsData.filter(
           (para) => para.value === normalizedSelectedText || para.originalText === selectedText
         );
 
-        if (matchingParagraphData) {
-          const isDuplicate = clipboardData.some(
-            (item) => item.key === matchingParagraphData.key && item.value === matchingParagraphData.value
+        if (matchingParagraphs.length > 0) {
+          let bestMatch = matchingParagraphs[0];
+
+          if (matchingParagraphs.length > 1 && paragraph.isListItem) {
+            const selectedLevel = paragraph.listItem.level;
+            const selectedListString = paragraph.listItem.listString;
+
+            const exactMatch = matchingParagraphs.find(
+              (para) => para.isListItem && para.level === selectedLevel && para.listString === selectedListString
+            );
+
+            if (exactMatch) {
+              bestMatch = exactMatch;
+            }
+          }
+
+          const isDuplicate = categoryData[selectedCategory].some(
+            (item) => item.key === bestMatch.key && item.value === bestMatch.value
           );
 
           if (!isDuplicate) {
-            newSelections.push({
-              key: matchingParagraphData.key,
-              value: matchingParagraphData.value,
-            });
+            if (selectedCategory === "closing" || selectedCategory === "postClosing") {
+              if (bestMatch.key) {
+                const keyParts = bestMatch.key.split(/(?<=^[^\d]+)(?=\d)/);
+                const mainHeadingKey = keyParts[0].trim().replace(/\.$/, "");
+                const sectionHeading = bestMatch.key.trim();
+                const content = bestMatch.value.trim();
+
+                const matchedParagraph = allParagraphsData.find((para) => para.key.trim() === mainHeadingKey);
+
+                const fullMainHeading = matchedParagraph
+                  ? mainHeadingKey + " " + matchedParagraph.value
+                  : mainHeadingKey;
+
+                newSelections.push({
+                  mainHeading: fullMainHeading,
+                  sectionHeading: sectionHeading,
+                  content: content,
+                });
+              }
+            } else {
+              newSelections.push({
+                key: bestMatch.key,
+                value: bestMatch.value,
+              });
+            }
           }
-        } else {
-          console.log("No match found for:", selectedText);
         }
       }
 
       if (newSelections.length > 0) {
-        clipboardData = [...clipboardData, ...newSelections];
+        categoryData[selectedCategory] = [...categoryData[selectedCategory], ...newSelections];
 
-        clipboardData.sort((a, b) => {
-          const aMatch = a.key.match(/\d+/g);
-          const bMatch = b.key.match(/\d+/g);
+        categoryData[selectedCategory].sort((a, b) => {
+          const aNumbers = a.key ? a.key.split(".").map((num) => parseInt(num)) : [];
+          const bNumbers = b.key ? b.key.split(".").map((num) => parseInt(num)) : [];
 
-          if (aMatch && bMatch) {
-            return parseInt(aMatch[0]) - parseInt(bMatch[0]);
+          for (let i = 0; i < Math.max(aNumbers.length, bNumbers.length); i++) {
+            if (isNaN(aNumbers[i])) return 1;
+            if (isNaN(bNumbers[i])) return -1;
+            if (aNumbers[i] !== bNumbers[i]) return aNumbers[i] - bNumbers[i];
           }
-          return a.key.localeCompare(b.key);
+          return 0;
         });
 
-        updateCopiedContentDisplay();
-        const clipboardString = formatClipboardData();
-        await copyToClipboard(clipboardString);
+        updateCategoryDisplay(selectedCategory);
 
-        console.log("Updated clipboard data:", clipboardString);
-      } else {
-        console.log("No new paragraphs to add.");
+        let clipboardString;
+        if (selectedCategory === "closing" || selectedCategory === "postClosing") {
+          clipboardString = formatClosingChecklistData(selectedCategory);
+        } else {
+          clipboardString = formatCategoryData(selectedCategory);
+        }
+
+        await copyToClipboard(clipboardString);
       }
     });
   } catch (error) {
-    console.error("An error occurred while copying data:", error);
+    console.error("An error occurred while processing selection:", error);
     if (error instanceof OfficeExtension.Error) {
       console.error("Debug info:", error.debugInfo);
     }
   }
 }
 
-function formatClipboardData() {
-  return `{\n${clipboardData.map((pair) => `"${pair.key}": "${pair.value}"`).join(",\n")}\n}`;
+function formatCategoryData(category) {
+  if (!categoryData[category] || !Array.isArray(categoryData[category])) {
+    console.error("Invalid category data for:", category);
+    return "{}";
+  }
+
+  if (category === "closing" || category === "postClosing") {
+    return formatClosingChecklistData(category);
+  }
+  const pairs = categoryData[category].map((pair) => `"${pair.key}": "${pair.value.replace(/"/g, '\\"')}"`).join(",\n");
+
+  return `{\n${pairs}\n}`;
 }
 
-function updateCopiedContentDisplay() {
-  const copiedContentElement = document.getElementById("copiedContent");
-  copiedContentElement.innerHTML = "";
+function formatClosingChecklistData(selectedCategory) {
+  const selections = categoryData[selectedCategory];
 
-  clipboardData.forEach((pair) => {
-    const keySpan = `<span class="key">${pair.key}</span>`;
-    const valueSpan = `<span class="value">${pair.value}</span>`;
-    const formattedPair = `<div class="pair">${keySpan}: ${valueSpan}</div>`;
-    copiedContentElement.innerHTML += formattedPair;
+  if (!Array.isArray(selections)) {
+    console.error("Invalid selections data for category:", selectedCategory);
+    return "{}";
+  }
+
+  const formattedData = {};
+
+  selections.forEach((selection) => {
+    if (!selection.mainHeading || !selection.sectionHeading || !selection.content) {
+      console.error("Missing data in selection:", selection);
+      return;
+    }
+
+    const mainHeading = selection.mainHeading.trim();
+    const sectionHeading = selection.sectionHeading.trim();
+    const content = selection.content.trim();
+
+    const sectionKeyParts = sectionHeading.split(".").map((part) => part.trim());
+    const mainHeadingKeyParts = mainHeading.split(".").map((part) => part.trim());
+
+    if (sectionKeyParts.length === 0 || mainHeadingKeyParts.length === 0) {
+      console.error("Invalid section heading or main heading format:", selection);
+      return;
+    }
+
+    if (!formattedData[mainHeading]) {
+      formattedData[mainHeading] = {
+        title: mainHeading,
+        sections: [],
+      };
+    }
+
+    formattedData[mainHeading].sections.push({
+      sectionHeading: sectionHeading,
+      content: content,
+    });
   });
 
-  copiedContentElement.style.display = clipboardData.length > 0 ? "block" : "none";
-  copiedContentElement.scrollTop = copiedContentElement.scrollHeight;
+  return JSON.stringify(formattedData, null, 2);
+}
+
+function updateCategoryDisplay(category) {
+  const contentElement = document.querySelector(`#${category}Content .content-area`);
+  if (!contentElement) {
+    console.error("Content element not found for category:", category);
+    return;
+  }
+
+  contentElement.innerHTML = "";
+
+  if (categoryData[category]) {
+    categoryData[category].forEach((pair) => {
+      if (category === "closing" || category === "postClosing") {
+        const entries = [
+          { key: "Article", value: pair.mainHeading },
+          { key: "Section", value: pair.sectionHeading },
+          { key: "Clause", value: pair.content },
+        ];
+
+        entries.forEach((entry) => {
+          const keySpan = `<span class="key">${entry.key}</span>`;
+          const valueSpan = `<span class="value">${entry.value}</span>`;
+          const formattedPair = `<div class="pair">${keySpan}: ${valueSpan}</div>`;
+          contentElement.innerHTML += formattedPair;
+        });
+
+        contentElement.innerHTML += "<br><br>";
+      } else {
+        const keySpan = `<span class="key">${pair.key}</span>`;
+        const valueSpan = `<span class="value">${pair.value}</span>`;
+        const formattedPair = `<div class="pair">${keySpan}: ${valueSpan}</div>`;
+        contentElement.innerHTML += formattedPair;
+      }
+    });
+  }
 }
 
 async function copyToClipboard(text) {
+  if (!text) {
+    console.error("No text provided to copy");
+    showCopyMessage(false);
+    return;
+  }
+
   try {
     await navigator.clipboard.writeText(text);
     showCopyMessage(true);
   } catch (err) {
+    console.log("Fallback: using execCommand for copy");
     const textArea = document.createElement("textarea");
     textArea.value = text;
     textArea.style.position = "fixed";
-    textArea.style.left = "-999999px";
-    textArea.style.top = "-999999px";
+    textArea.style.left = "-9999px";
+    textArea.style.top = "-9999px";
     document.body.appendChild(textArea);
 
     try {
-      textArea.focus();
       textArea.select();
       const successful = document.execCommand("copy");
       showCopyMessage(successful);
     } catch (err) {
-      console.error("Unable to copy to clipboard", err);
+      console.error("Failed to copy text:", err);
       showCopyMessage(false);
     } finally {
       document.body.removeChild(textArea);
@@ -239,6 +503,11 @@ async function copyToClipboard(text) {
 
 function showCopyMessage(successful) {
   const copyMessage = document.getElementById("copyMessage");
+  if (!copyMessage) {
+    console.error("Copy message element not found");
+    return;
+  }
+
   copyMessage.style.display = "block";
   copyMessage.textContent = successful ? "Content added and copied to clipboard!" : "Failed to copy content";
   copyMessage.style.color = successful ? "green" : "red";
@@ -248,9 +517,22 @@ function showCopyMessage(successful) {
   }, 3000);
 }
 
-function clearCopiedContent() {
-  clipboardData = [];
-  const copiedContentElement = document.getElementById("copiedContent");
-  copiedContentElement.innerHTML = "";
-  copiedContentElement.style.display = "none";
+async function clearCurrentContent() {
+  const selectedCategory = document.getElementById("categorySelect").value;
+  if (!selectedCategory) {
+    console.log("No category selected");
+    return;
+  }
+
+  categoryData[selectedCategory] = [];
+
+  const contentElement = document.querySelector(`#${selectedCategory}Content .content-area`);
+  if (contentElement) {
+    contentElement.innerHTML = "";
+  }
+
+  const clipboardString = "{}";
+  await silentCopyToClipboard(clipboardString);
+
+  console.log(`Cleared content for category: ${selectedCategory}`);
 }

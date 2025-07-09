@@ -1,18 +1,101 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>Word Add-in</title>
-  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <script src="taskpane.js"></script>
-  <link rel="stylesheet" href="taskpane.css">
-</head>
-<body>
-  <div class="container">
-    <div id="copyMessage">Text has been copied successfully!</div>
-    <button id="logStyleContentButton">Copy Selected Text</button>
-    <button id="clearContentButton">Clear Copied Text</button>
-    <pre id="copiedContent" style="display: none;"></pre> 
-  </div>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <title>Word Add-in</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script src="taskpane.js"></script>
+    <!-- <script src="wordOperations.js"></script> -->
+    <script src="dealDriver.js"></script>
+    <link rel="stylesheet" href="taskpane.css" />
+    <style>
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div style="text-align: right; padding: 10px">
+        <button id="loginButton" class="small-text">Login To Deal Driver</button>
+      </div>
+
+      <div id="loginModal" class="modal">
+        <div class="modal-content">
+          <span class="close-modal">&times;</span>
+          <h2>Login</h2>
+          <form id="loginForm" class="login-form">
+            <label for="environmentSelect">Select Environment:</label>
+            <select id="environmentSelect" required>
+              <option value="production">Production</option>
+              <option value="sandbox">Sandbox</option>
+              <option value="preview">Preview</option>
+            </select>
+            <input type="text" id="userName" placeholder="Email" required />
+            <input type="password" id="password" placeholder="Password" required />
+            <button type="submit">Login</button>
+          </form>
+          <div id="loginError" class="login-error hidden">Invalid username or password</div>
+        </div>
+      </div>
+
+      <div id="mainContent" class="hidden">
+        <div id="dealOptions">
+          <label for="dealSelect">Select Deal:</label>
+          <select id="dealSelect">
+            </select>
+          <button id="sendDealButton">Send Data</button>
+          <button id="fetchDataButton">Fetch Data</button> <!-- New button added here -->
+
+        </div>
+
+        <div id="changeNotification">
+          <div class="notification-content">
+            <div style="display: flex; align-items: center; gap: 1rem">
+              <span style="font-size: 0.95rem; font-weight: 700; color: #1a202c; letter-spacing: -0.01em">The content of the document has been updated</span>
+              <button id="reloadButton">Reload</button>
+            </div>
+
+            <button id="dismissNotification">
+              <span style="line-height: 1">&times;</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="copyMessage" class="hidden">Text has been copied successfully!</div>
+
+        <div class="control-group">
+          <select id="categorySelect" class="small-text">
+            <option value="representation" selected>Representation and Warranty</option>
+            <option value="closing">Closing Checklist</option>
+            <option value="postClosing">Post Closing</option>
+          </select>
+          <button id="logStyleContentButton" class="small-text">Copy Selected Text</button>
+          <button id="clearContentButton" class="small-text" style="background-color: rgb(218, 15, 0)">Clear</button>
+        </div>
+
+        <div class="content-sections">
+          <div id="closingContent" class="category-content">
+            <h3>Closing Checklist</h3>
+            <pre class="content-area"></pre>
+          </div>
+          <div id="postClosingContent" class="category-content">
+            <h3>Post Closing</h3>
+            <pre class="content-area"></pre>
+          </div>
+          <div id="representationContent" class="category-content">
+            <h3>Representation and Warranty</h3>
+            <pre class="content-area"></pre>
+          </div>
+        </div>
+
+        <div id="databaseContentSection" class="category-content">
+          <h3>Existing Data from Database</h3>
+          <pre id="databaseContentArea" class="content-area">
+            Lorem ipsum dolor sit amet consectetur adipisicing elit. Et possimus temporibus odio, neque facilis in itaque cumque voluptatem consequuntur ipsa sit quidem veritatis mollitia debitis amet aut vel corporis eius. Aliquam a reiciendis suscipit possimus vero! Totam vel sit id temporibus, accusamus soluta consequuntur qui unde earum voluptatem ut non.
+          </pre>
+        </div>
+        </div>
+    </div>
+  </body>
 </html>
