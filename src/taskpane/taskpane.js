@@ -8,6 +8,8 @@ let categoryData = {
   representation: [],
 };
 
+window.categoryData = categoryData;
+
 let allParagraphsData = [];
 let isDataLoaded = false;
 let documentContentHash = "";
@@ -144,11 +146,13 @@ async function silentCopyToClipboard(text) {
 }
 
 function normalizeText(text) {
+  if (!text) return "";
   return text
     .trim()
     .replace(/^\.\s*/, "")
     .replace(/\s+/g, " ")
-    .replace(/[^\x20-\x7E]/g, "");
+    .replace(/[^\x20-\x7E]/g, "")
+    .toLowerCase();
 }
 
 async function loadAllParagraphsData() {
@@ -170,6 +174,8 @@ async function loadAllParagraphsData() {
       const listItems = paragraphs.items.filter((p) => p.isListItem);
       listItems.forEach((item) => item.listItem.load("level, listString"));
       await context.sync();
+
+      allParagraphsData = []; // Reset the data before reloading
 
       for (let i = 0; i < paragraphs.items.length; i++) {
         const paragraph = paragraphs.items[i];
@@ -237,6 +243,7 @@ async function loadAllParagraphsData() {
       const categorySelect = document.getElementById("categorySelect");
       document.getElementById("logStyleContentButton").disabled = !categorySelect.value;
       isDataLoaded = true;
+      console.log("All paragraphs data loaded:", allParagraphsData.length);
     });
   } catch (error) {
     console.error("An error occurred while loading all paragraphs data:", error);
@@ -251,6 +258,7 @@ async function loadAllParagraphsData() {
 async function getListInfoFromSelection() {
   if (!isDataLoaded) {
     console.log("Data is still loading. Please wait.");
+    showCopyMessage(false, "Data is still loading. Please wait.");
     return;
   }
 
@@ -259,6 +267,7 @@ async function getListInfoFromSelection() {
 
   if (!selectedCategory) {
     console.log("No category selected");
+    showCopyMessage(false, "No category selected");
     return;
   }
 
@@ -269,6 +278,13 @@ async function getListInfoFromSelection() {
 
       paragraphs.load("items");
       await context.sync();
+
+      console.log("Selected paragraphs count:", paragraphs.items.length);
+      if (paragraphs.items.length === 0) {
+        console.log("No paragraphs found in selection");
+        showCopyMessage(false, "No paragraphs found in selection");
+        return;
+      }
 
       const paragraphPromises = paragraphs.items.map((paragraph) => {
         paragraph.load("text,isListItem");
@@ -285,10 +301,17 @@ async function getListInfoFromSelection() {
       for (const paragraph of paragraphs.items) {
         const selectedText = paragraph.text.trim().replace(/^\.\s*/, "");
         const normalizedSelectedText = normalizeText(selectedText);
+        console.log("Processing paragraph text:", selectedText);
 
-        const matchingParagraphs = allParagraphsData.filter(
-          (para) => para.value === normalizedSelectedText || para.originalText === selectedText
-        );
+        const matchingParagraphs = allParagraphsData.filter((para) => {
+          const normalizedParaText = normalizeText(para.originalText || para.value);
+          return (
+            normalizedParaText === normalizedSelectedText ||
+            para.originalText === selectedText ||
+            para.value === normalizedSelectedText
+          );
+        });
+        console.log("Found matches:", matchingParagraphs.length);
 
         if (matchingParagraphs.length > 0) {
           let bestMatch = matchingParagraphs[0];
@@ -341,7 +364,13 @@ async function getListInfoFromSelection() {
       }
 
       if (newSelections.length > 0) {
-        categoryData[selectedCategory] = [...categoryData[selectedCategory], ...newSelections];
+        // Create deep copies of the objects to prevent reference issues
+        categoryData[selectedCategory] = [
+          ...categoryData[selectedCategory].map((item) => ({ ...item })),
+          ...newSelections.map((item) => ({ ...item })),
+        ];
+
+        console.log("Updated category data:", JSON.stringify(categoryData[selectedCategory], null, 2));
 
         categoryData[selectedCategory].sort((a, b) => {
           const aNumbers = a.key ? a.key.split(".").map((num) => parseInt(num)) : [];
@@ -364,11 +393,16 @@ async function getListInfoFromSelection() {
           clipboardString = formatCategoryData(selectedCategory);
         }
 
+        console.log("Clipboard content to be copied:", clipboardString);
         await copyToClipboard(clipboardString);
+      } else {
+        console.log("No new selections to add");
+        showCopyMessage(false, "No new matching content found in selection");
       }
     });
   } catch (error) {
     console.error("An error occurred while processing selection:", error);
+    showCopyMessage(false, "Error processing selection");
     if (error instanceof OfficeExtension.Error) {
       console.error("Debug info:", error.debugInfo);
     }
@@ -376,24 +410,33 @@ async function getListInfoFromSelection() {
 }
 
 function formatCategoryData(category) {
-  if (!categoryData[category] || !Array.isArray(categoryData[category])) {
-    console.error("Invalid category data for:", category);
+  if (!categoryData[category] || categoryData[category].length === 0) {
+    console.error("No data available for category:", category);
     return "{}";
   }
 
-  if (category === "closing" || category === "postClosing") {
-    return formatClosingChecklistData(category);
-  }
-  const pairs = categoryData[category].map((pair) => `"${pair.key}": "${pair.value.replace(/"/g, '\\"')}"`).join(",\n");
+  try {
+    if (category === "closing" || category === "postClosing") {
+      return formatClosingChecklistData(category);
+    }
 
-  return `{\n${pairs}\n}`;
+    const pairs = categoryData[category]
+      .filter((item) => item.key && item.value) // Filter out invalid entries
+      .map((pair) => `"${pair.key}": "${pair.value.replace(/"/g, '\\"')}"`)
+      .join(",\n");
+
+    return pairs ? `{\n${pairs}\n}` : "{}";
+  } catch (error) {
+    console.error("Formatting error:", error);
+    return "{}";
+  }
 }
 
 function formatClosingChecklistData(selectedCategory) {
   const selections = categoryData[selectedCategory];
 
-  if (!Array.isArray(selections)) {
-    console.error("Invalid selections data for category:", selectedCategory);
+  if (!Array.isArray(selections) || selections.length === 0) {
+    console.error("Invalid or empty selections data for category:", selectedCategory);
     return "{}";
   }
 
@@ -408,14 +451,6 @@ function formatClosingChecklistData(selectedCategory) {
     const mainHeading = selection.mainHeading.trim();
     const sectionHeading = selection.sectionHeading.trim();
     const content = selection.content.trim();
-
-    const sectionKeyParts = sectionHeading.split(".").map((part) => part.trim());
-    const mainHeadingKeyParts = mainHeading.split(".").map((part) => part.trim());
-
-    if (sectionKeyParts.length === 0 || mainHeadingKeyParts.length === 0) {
-      console.error("Invalid section heading or main heading format:", selection);
-      return;
-    }
 
     if (!formattedData[mainHeading]) {
       formattedData[mainHeading] = {
@@ -434,6 +469,7 @@ function formatClosingChecklistData(selectedCategory) {
 }
 
 function updateCategoryDisplay(category) {
+  console.log("Updating display for:", category, "with data:", categoryData[category]);
   const contentElement = document.querySelector(`#${category}Content .content-area`);
   if (!contentElement) {
     console.error("Content element not found for category:", category);
@@ -442,7 +478,7 @@ function updateCategoryDisplay(category) {
 
   contentElement.innerHTML = "";
 
-  if (categoryData[category]) {
+  if (categoryData[category] && categoryData[category].length > 0) {
     categoryData[category].forEach((pair) => {
       if (category === "closing" || category === "postClosing") {
         const entries = [
@@ -466,19 +502,25 @@ function updateCategoryDisplay(category) {
         contentElement.innerHTML += formattedPair;
       }
     });
+  } else {
+    contentElement.innerHTML = "<p>No content available for this category</p>";
   }
 }
 
 async function copyToClipboard(text) {
-  if (!text) {
-    console.error("No text provided to copy");
-    showCopyMessage(false);
+  if (!text || text === "{}") {
+    console.error("Empty content detected. Data state:", {
+      categoryData,
+      allParagraphsData,
+      selectedCategory: document.getElementById("categorySelect").value,
+    });
+    showCopyMessage(false, "No content to copy");
     return;
   }
 
   try {
     await navigator.clipboard.writeText(text);
-    showCopyMessage(true);
+    showCopyMessage(true, "Content copied to clipboard!");
   } catch (err) {
     console.log("Fallback: using execCommand for copy");
     const textArea = document.createElement("textarea");
@@ -491,17 +533,17 @@ async function copyToClipboard(text) {
     try {
       textArea.select();
       const successful = document.execCommand("copy");
-      showCopyMessage(successful);
+      showCopyMessage(successful, successful ? "Content copied to clipboard!" : "Failed to copy content");
     } catch (err) {
       console.error("Failed to copy text:", err);
-      showCopyMessage(false);
+      showCopyMessage(false, "Failed to copy content");
     } finally {
       document.body.removeChild(textArea);
     }
   }
 }
 
-function showCopyMessage(successful) {
+function showCopyMessage(successful, message) {
   const copyMessage = document.getElementById("copyMessage");
   if (!copyMessage) {
     console.error("Copy message element not found");
@@ -509,7 +551,8 @@ function showCopyMessage(successful) {
   }
 
   copyMessage.style.display = "block";
-  copyMessage.textContent = successful ? "Content added and copied to clipboard!" : "Failed to copy content";
+  copyMessage.textContent =
+    message || (successful ? "Content added and copied to clipboard!" : "Failed to copy content");
   copyMessage.style.color = successful ? "green" : "red";
 
   setTimeout(() => {
@@ -528,11 +571,12 @@ async function clearCurrentContent() {
 
   const contentElement = document.querySelector(`#${selectedCategory}Content .content-area`);
   if (contentElement) {
-    contentElement.innerHTML = "";
+    contentElement.innerHTML = "<p>No content available for this category</p>";
   }
 
   const clipboardString = "{}";
   await silentCopyToClipboard(clipboardString);
 
   console.log(`Cleared content for category: ${selectedCategory}`);
+  showCopyMessage(true, "Category content cleared");
 }
