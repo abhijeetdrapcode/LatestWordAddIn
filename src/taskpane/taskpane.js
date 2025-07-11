@@ -17,6 +17,7 @@ let documentContentHash = "";
 // Initialize Word operations when Office is ready
 Office.onReady((info) => {
   if (info.host === Office.HostType.Word) {
+    loadSavedCategoryData();
     initWordOperations();
   }
 });
@@ -383,7 +384,7 @@ async function getListInfoFromSelection() {
           }
           return 0;
         });
-
+        saveCategoryData();
         updateCategoryDisplay(selectedCategory);
 
         let clipboardString;
@@ -431,10 +432,13 @@ function formatCategoryData(category) {
     return "{}";
   }
 }
+function formatClosingChecklistData(data, selectedCategory) {
+  if (!data || !data[selectedCategory]) {
+    console.error("Invalid or empty data for category:", selectedCategory);
+    return "{}";
+  }
 
-function formatClosingChecklistData(selectedCategory) {
-  const selections = categoryData[selectedCategory];
-
+  const selections = data[selectedCategory];
   if (!Array.isArray(selections) || selections.length === 0) {
     console.error("Invalid or empty selections data for category:", selectedCategory);
     return "{}";
@@ -467,7 +471,6 @@ function formatClosingChecklistData(selectedCategory) {
 
   return JSON.stringify(formattedData, null, 2);
 }
-
 function updateCategoryDisplay(category) {
   console.log("Updating display for:", category, "with data:", categoryData[category]);
   const contentElement = document.querySelector(`#${category}Content .content-area`);
@@ -568,7 +571,7 @@ async function clearCurrentContent() {
   }
 
   categoryData[selectedCategory] = [];
-
+  saveCategoryData();
   const contentElement = document.querySelector(`#${selectedCategory}Content .content-area`);
   if (contentElement) {
     contentElement.innerHTML = "<p>No content available for this category</p>";
@@ -579,4 +582,26 @@ async function clearCurrentContent() {
 
   console.log(`Cleared content for category: ${selectedCategory}`);
   showCopyMessage(true, "Category content cleared");
+}
+
+function saveCategoryData() {
+  try {
+    localStorage.setItem("categoryData", JSON.stringify(categoryData));
+    console.log("Auto-saved categoryData to localStorage");
+  } catch (error) {
+    console.error("Failed to save categoryData:", error);
+  }
+}
+
+// Helper to load saved data on startup
+function loadSavedCategoryData() {
+  const savedData = localStorage.getItem("categoryData");
+  if (savedData) {
+    try {
+      categoryData = JSON.parse(savedData);
+      console.log("Loaded saved categoryData:", categoryData);
+    } catch (error) {
+      console.error("Failed to parse saved data:", error);
+    }
+  }
 }

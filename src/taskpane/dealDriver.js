@@ -1,5 +1,7 @@
 console.log("dealDriver.js loaded");
 
+let selectedCategory = "";
+window.selectedCategory = selectedCategory;
 let isLoggedIn = false;
 let loginResponseData = null;
 let selectedEnvironment;
@@ -113,6 +115,7 @@ function handleLogout() {
   localStorage.removeItem("loginResponseData");
   localStorage.removeItem("selectedEnvironment");
   localStorage.removeItem("selectedDealId");
+  localStorage.removeItem("categoryData");
 
   // Update UI
   const loginButton = document.getElementById("loginButton");
@@ -212,7 +215,7 @@ async function handleSendDeal() {
 
   try {
     const selectedDealName = dealSelect.options[dealSelect.selectedIndex].text;
-    const selectedCategory = document.getElementById("categorySelect").value;
+    selectedCategory = document.getElementById("categorySelect").value;
     const loginResponseDataString = localStorage.getItem("loginResponseData");
 
     if (!loginResponseDataString) {
@@ -343,27 +346,55 @@ function getBaseUrlForEnvironment(env) {
 }
 
 async function sendClosingData(dealUuid, tenantId, environment, permissions, category, dealName, showMessage) {
-  const response = await fetch("https://dealdriverapi.drapcode.co/addClosingData", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      dealId: dealUuid,
-      tenantId: tenantId,
-      environment: environment,
-      permissions: permissions,
-    },
-    body: formatClosingChecklistData(category),
-  });
+  try {
+    // Properly parse the localStorage data
+    const data = localStorage.getItem("categoryData");
+    if (!data) {
+      throw new Error("No category data found in localStorage");
+    }
 
-  if (response.ok) {
-    const responseData = await response.json();
-    showMessage(`${category} data sent successfully to ${dealName}`);
-    console.log("Server response:", responseData);
-  } else {
-    const errorData = await response.text();
-    showMessage("Error while sending the data", true);
-    console.error(`Failed to send deal. Status: ${response.status}`);
-    console.error("Error details:", errorData);
+    const parsedCategoryData = JSON.parse(data);
+    if (!parsedCategoryData[category]) {
+      throw new Error(`No data available for category: ${category}`);
+    }
+
+    // Format the data correctly
+    const formattedData = formatClosingChecklistData(parsedCategoryData, category);
+    if (!formattedData || formattedData === "{}") {
+      throw new Error("Formatted data is empty");
+    }
+
+    // Convert permissions array to comma-separated string if it's an array
+    let permissionsHeader = permissions;
+    if (Array.isArray(permissions)) {
+      permissionsHeader = permissions.join(",");
+    }
+
+    const response = await fetch("http://localhost:3002/addClosingData", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        dealId: dealUuid,
+        tenantId: tenantId,
+        environment: environment,
+        permissions: permissionsHeader, // Send as comma-separated string
+      },
+      body: formattedData,
+    });
+
+    if (response.ok) {
+      const responseData = await response.json();
+      showMessage(`${category} data sent successfully to ${dealName}`);
+      console.log("Server response:", responseData);
+    } else {
+      const errorData = await response.text();
+      showMessage("Error while sending the data", true);
+      console.error(`Failed to send deal. Status: ${response.status}`);
+      console.error("Error details:", errorData);
+    }
+  } catch (error) {
+    console.error("Error in sendClosingData:", error);
+    showMessage(`Error: ${error.message}`, true);
   }
 }
 
@@ -394,36 +425,53 @@ async function sendPostClosingData(dealUuid, tenantId, environment, permissions,
 
 async function sendRepresentationData(dealUuid, tenantId, environment, permissions, category, dealName, showMessage) {
   console.log("THis is the category: ", window.categoryData);
-  const formattedcategoryData = window.categoryData[category].reduce((acc, item) => {
-    acc[item.key] = item.value;
-    return acc;
-  }, {});
+  const repsAndWarrantyData = localStorage.getItem("categoryData");
+  console.log("THis is repsWarranty data: ", repsAndWarrantyData);
 
-  console.log("This is the data i am sending : ", formattedcategoryData);
-  const response = await fetch("http://localhost:3002/parseWord", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      dealId: dealUuid,
-      tenantId: tenantId,
-      environment: environment,
-      permissions: permissions,
-    },
-    body: JSON.stringify(formattedcategoryData),
-  });
+  try {
+    // Parse the JSON string from localStorage
+    const parsedData = JSON.parse(repsAndWarrantyData);
 
-  if (response.ok) {
-    const responseData = await response.json();
-    showMessage(`${category} data sent successfully to ${dealName}`);
-    console.log("Server response:", responseData);
-  } else {
-    const errorData = await response.text();
-    showMessage(errorData, true);
-    console.error(`Failed to send deal. Status: ${response.status}`);
-    console.error("Error details:", errorData);
+    // Check if parsedData exists and has the representation property
+    if (!parsedData || !parsedData.representation) {
+      throw new Error("Invalid data format: representation array not found");
+    }
+
+    const formattedcategoryData = parsedData.representation.reduce((acc, item) => {
+      if (item && item.key && item.value) {
+        acc[item.key] = item.value;
+      }
+      return acc;
+    }, {});
+
+    console.log("This is the data i am sending : ", formattedcategoryData);
+    const response = await fetch("http://localhost:3002/parseWord", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        dealId: dealUuid,
+        tenantId: tenantId,
+        environment: environment,
+        permissions: permissions,
+      },
+      body: JSON.stringify(formattedcategoryData),
+    });
+
+    if (response.ok) {
+      const responseData = await response.json();
+      showMessage(`${category} data sent successfully to ${dealName}`);
+      console.log("Server response:", responseData);
+    } else {
+      const errorData = await response.text();
+      showMessage(errorData, true);
+      console.error(`Failed to send deal. Status: ${response.status}`);
+      console.error("Error details:", errorData);
+    }
+  } catch (error) {
+    console.error("Error processing data:", error);
+    showMessage(`Error processing data: ${error.message}`, true);
   }
 }
-
 function togglePassword() {
   var toggler = document.getElementById("password");
   if (toggler.type === "password") {
@@ -436,108 +484,94 @@ function togglePassword() {
 async function fetchRepresentationData() {
   console.log("Fetch representation data function triggered");
 
-  // Helper function to display messages (for console and potential UI feedback)
+  // Helper function to display messages
   const showMessage = (message, isError = false) => {
     console.log(isError ? `Error: ${message}` : `Success: ${message}`);
-    // You can implement a proper message display in the UI here if needed
   };
 
   try {
-    // Ensure the deal selection element exists
-    const dealSelect = document.getElementById("dealSelect"); // Assuming dealSelect is globally available or passed
+    // Check for required UI elements and selections
+    const dealSelect = document.getElementById("dealSelect");
     if (!dealSelect) {
-      console.error("Deal select element not available");
-      showMessage("Initialization error: Deal selection not found.", true);
+      showMessage("Deal selection not found.", true);
       return;
     }
 
-    // Get the selected deal name from the dropdown
     const selectedDealName = dealSelect.options[dealSelect.selectedIndex]?.text;
-    console.log("Selected deal name:", selectedDealName);
-
     if (!selectedDealName) {
-      const errorMsg = "Please select a deal first.";
-      console.error(errorMsg);
-      showMessage(errorMsg, true);
+      showMessage("Please select a deal first.", true);
       return;
     }
 
-    // Retrieve environment from local storage
+    // Get required data from localStorage
     const environment = localStorage.getItem("selectedEnvironment");
-    console.log("Environment from localStorage:", environment);
-
     if (!environment) {
-      const errorMsg = "Environment not found. Please login again.";
-      console.error(errorMsg);
-      showMessage(errorMsg, true);
+      showMessage("Environment not found. Please login again.", true);
       return;
     }
 
-    // Retrieve login response data from local storage to get deal ID
     const loginResponseDataString = localStorage.getItem("loginResponseData");
-    console.log("Login response data from localStorage:", loginResponseDataString);
-
     if (!loginResponseDataString) {
-      const errorMsg = "Deal data not found in local storage.";
-      console.error(errorMsg);
-      showMessage(errorMsg, true);
+      showMessage("Deal data not found in local storage.", true);
       return;
     }
 
+    // Get representation data from localStorage
+    const categoryDataString = localStorage.getItem("categoryData");
+    let representationData = [];
+
+    if (categoryDataString) {
+      try {
+        const categoryData = JSON.parse(categoryDataString);
+        representationData = categoryData.representation || [];
+        console.log("Found representation data in localStorage:", representationData);
+      } catch (e) {
+        console.error("Error parsing categoryData:", e);
+      }
+    }
+
+    // Find deal UUID from login data
     const loginResponseData = JSON.parse(loginResponseDataString);
     const dealsArray = loginResponseData.userDetails?.tenantId || [];
-    console.log("Deals array from login response:", dealsArray);
-
-    // Find the matched deal UUID based on the selected deal name
     const matchedDeal = dealsArray.find((deal) => deal.name === selectedDealName);
-    console.log("Matched deal:", matchedDeal);
 
     if (!matchedDeal) {
-      const errorMsg = "Could not find matching deal for the selected name.";
-      console.error(errorMsg);
-      showMessage(errorMsg, true);
+      showMessage("Could not find matching deal for the selected name.", true);
       return;
     }
 
     const dealUuid = matchedDeal.deal?.[0]?.uuid;
-    console.log("Deal UUID:", dealUuid);
-
     if (!dealUuid) {
-      const errorMsg = "Could not find deal UUID for the selected deal.";
-      console.error(errorMsg);
-      showMessage(errorMsg, true);
+      showMessage("Could not find deal UUID for the selected deal.", true);
       return;
     }
 
-    // Attempt to fetch data from the API
-    console.log("Attempting to fetch data from API...");
+    // Prepare API request payload
+    const requestBody = {
+      environment: environment,
+      dealId: dealUuid,
+      representationData: representationData, // Include the representation data
+    };
+
+    console.log("Sending API request with payload:", requestBody);
+
+    // Make API call
     const response = await fetch("http://localhost:3002/getRepsData", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        environment: environment,
-        dealId: dealUuid,
-      }),
+      body: JSON.stringify(requestBody),
     });
-
-    console.log("API response status:", response.status);
-
+    console.log("This is the api response for fetching the collection Data: ", response);
     if (response.ok) {
       const data = await response.json();
-      console.log("API response data:", data);
-
-      // Call the display function with the fetched data
+      console.log("This is the data after fetch: ", data);
       displayRepresentationData(data);
-
       showMessage("Data fetched successfully!");
-      console.log("Data fetch completed successfully.");
     } else {
       const errorData = await response.text();
-      console.error(`Failed to fetch data. Status: ${response.status}`);
-      console.error("Error details:", errorData);
-      showMessage(`Failed to fetch data. Server responded with status: ${response.status}`, true);
+      showMessage(`Failed to fetch data. Status: ${response.status}`, true);
     }
   } catch (error) {
     console.error("Error in fetchRepresentationData:", error);
