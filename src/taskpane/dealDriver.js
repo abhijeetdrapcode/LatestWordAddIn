@@ -1,6 +1,8 @@
 console.log("dealDriver.js loaded");
 
-let selectedCategory = "";
+// let selectedCategory = "";
+let selectedCategory = localStorage.getItem("selectedCategory") || "repsAndWarranty";
+
 window.selectedCategory = selectedCategory;
 let isLoggedIn = false;
 let loginResponseData = null;
@@ -39,6 +41,20 @@ function initDealDriverIntegration() {
       handleLogout();
     }
   });
+
+  const categorySelect = document.getElementById("categorySelect");
+  if (categorySelect) {
+    // Set initial value to repsAndWarranty
+    categorySelect.value = selectedCategory;
+    localStorage.setItem("selectedCategory", selectedCategory); // Store default
+
+    categorySelect.addEventListener("change", (e) => {
+      selectedCategory = e.target.value;
+      window.selectedCategory = selectedCategory;
+      localStorage.setItem("selectedCategory", selectedCategory);
+      console.log(`Category changed to: ${selectedCategory}`);
+    });
+  }
 
   // Close modal handlers
   closeModal.addEventListener("click", () => {
@@ -579,58 +595,196 @@ async function fetchRepresentationData() {
   }
 }
 
-function displayRepresentationData(data) {
-  let displayContent = "";
+function displayRepresentationData(response) {
+  const contentArea = document.getElementById("databaseContentArea");
+  if (!contentArea) return;
 
-  if (data.success && data.data && Array.isArray(data.data)) {
-    // Filter out items that do not have both article and clause
-    const validItems = data.data.filter((item) => item.article && item.clause);
+  if (!response.success || !response.data) {
+    contentArea.innerHTML = `
+      <div style="color: red; text-align: center; padding: 20px;">
+        Error loading data
+      </div>
+    `;
+    return;
+  }
 
-    if (validItems.length > 0) {
-      // Format the data to show article (bold part before colon, normal after)
-      // and clause (normal text) using HTML
-      const formattedItems = validItems.map((item, index) => {
-        let formattedArticleHtml = "";
-        const colonIndex = item.article.indexOf(":");
+  // Save to localStorage
+  localStorage.setItem("lastRepresentationApiResponse", JSON.stringify(response));
+  if (response.data.oldData) {
+    localStorage.setItem("fetchedOldRepresentationData", JSON.stringify(response.data.oldData));
+  }
 
-        if (colonIndex !== -1) {
-          // Split the article into a bold part (before colon) and a normal part (after colon)
-          const boldPart = item.article.substring(0, colonIndex);
-          const normalPart = item.article.substring(colonIndex); // Includes the colon and the rest
-          formattedArticleHtml = `<span style="font-weight: bold;">${boldPart}</span>${normalPart}`;
-        } else {
-          // If no colon, make the entire article bold as a fallback
-          formattedArticleHtml = `<span style="font-weight: bold;">${item.article}</span>`;
-        }
+  const { changedItems, newItems, hasChanges } = response.data;
+  let html = "";
 
-        return `
-            <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">
-              <div style="color: #333; margin-bottom: 5px; font-size: 1.1em;">
-                ${index + 1}. ${formattedArticleHtml}
-              </div>
-              <div style="color: #666; line-height: 1.4; font-size: 0.95em;">
-                ${item.clause}
-              </div>
+  if (!hasChanges) {
+    html = `
+      <div style="text-align: center; padding: 20px; color: #666;">
+        No changes detected - all data matches
+      </div>
+    `;
+  } else {
+    html += `
+      <div style="text-align: center; margin-bottom: 20px;">
+        <button 
+          onclick="replaceWithOldData()" 
+          style="background-color: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;"
+        >
+          Replace All with Old Data
+        </button>
+      </div>
+    `;
+
+    if (changedItems.length > 0) {
+      html += `
+        <div style="margin-bottom: 30px;">
+          <h3 style="color: #007bff; margin-bottom: 15px; border-bottom: 2px solid #007bff; padding-bottom: 5px;">
+            Modified Items (${changedItems.length})
+          </h3>
+      `;
+
+      changedItems.forEach((item) => {
+        html += `
+          <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h4 style="color: #495057; margin: 0 0 10px 0; font-size: 16px; font-weight: 600;">
+              ${item.article}
+            </h4>
+            <div style="margin-bottom: 8px;">
+              <strong style="color: #dc3545;">Previous:</strong> 
+              <span style="background-color: #f8d7da; padding: 2px 6px; border-radius: 3px; display: inline-block; margin-top: 5px;">
+                ${item.previousClause}
+              </span>
             </div>
-          `;
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong style="color: #28a745;">Updated:</strong> 
+                <span style="background-color: #d4edda; padding: 2px 6px; border-radius: 3px; display: inline-block; margin-top: 5px;">
+                  ${item.newClause}
+                </span>
+              </div>
+              <button 
+                onclick="replaceSingleItem('${item.article.replace(/'/g, "\\'")}')" 
+                style="margin-left: 10px; background-color: #ffc107; border: none; color: black; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;"
+              >
+                Replace This
+              </button>
+            </div>
+          </div>
+        `;
       });
 
-      displayContent = formattedItems.join("");
-    } else {
-      displayContent =
-        "<div style='padding: 10px; color: #888;'>No valid articles and clauses found in the data.</div>";
+      html += `</div>`;
     }
-  } else {
-    displayContent = "<div style='padding: 10px; color: #888;'>No valid data found in the API response.</div>";
+
+    if (newItems.length > 0) {
+      html += `
+        <div style="margin-bottom: 30px;">
+          <h3 style="color: #28a745; margin-bottom: 15px; border-bottom: 2px solid #28a745; padding-bottom: 5px;">
+            New Items (${newItems.length})
+          </h3>
+      `;
+
+      newItems.forEach((item) => {
+        html += `
+          <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h4 style="color: #495057; margin: 0 0 10px 0; font-size: 16px; font-weight: 600;">
+              ${item.article}
+            </h4>
+            <div style="background-color: #d4edda; padding: 8px; border-radius: 5px; border-left: 4px solid #28a745;">
+              ${item.clause}
+            </div>
+          </div>
+        `;
+      });
+
+      html += `</div>`;
+    }
   }
 
-  // Display the formatted data in the designated content area
-  const databaseContentArea = document.getElementById("databaseContentArea");
-  if (databaseContentArea) {
-    databaseContentArea.innerHTML = displayContent; // Use innerHTML to render HTML content
-    console.log("Article and clause data displayed in content area.");
-  } else {
-    console.error("Database content area element with ID 'databaseContentArea' not found.");
-    // Note: You might want to handle this error differently since we're not in the fetch function anymore
+  contentArea.innerHTML = html;
+}
+
+function replaceWithOldData() {
+  try {
+    const categoryData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+    const representation = categoryData.representation || [];
+
+    const lastResponse = JSON.parse(localStorage.getItem("lastRepresentationApiResponse") || "{}");
+    const changedItems = lastResponse.data?.changedItems || [];
+
+    if (!changedItems.length) {
+      showMessage("No changed items found.", true);
+      return;
+    }
+
+    let replaced = 0;
+
+    changedItems.forEach((changedItem) => {
+      const article = changedItem.article;
+      const previousClause = changedItem.previousClause;
+
+      const index = representation.findIndex((item) => item.key === article);
+      if (index !== -1 && previousClause) {
+        representation[index].value = previousClause;
+        replaced++;
+      }
+    });
+
+    categoryData.representation = representation;
+    localStorage.setItem("categoryData", JSON.stringify(categoryData));
+
+    showMessage(`Replaced ${replaced} item(s) with previous clauses.`);
+    typeof fetchRepresentationData === "function" ? fetchRepresentationData() : location.reload();
+  } catch (error) {
+    console.error("Error in replaceWithOldData:", error);
+    showMessage("An error occurred while replacing data.", true);
   }
+}
+function replaceSingleItem(article) {
+  try {
+    const categoryData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+    const representation = categoryData.representation || [];
+
+    const lastResponse = JSON.parse(localStorage.getItem("lastRepresentationApiResponse") || "{}");
+    const changedItems = lastResponse.data?.changedItems || [];
+
+    const changedItem = changedItems.find((item) => item.article === article);
+    if (!changedItem || !changedItem.previousClause) {
+      showMessage("Previous clause not found for this article.", true);
+      return;
+    }
+
+    const index = representation.findIndex((item) => item.key === article);
+    if (index === -1) {
+      showMessage("Article not found in current representation.", true);
+      return;
+    }
+
+    representation[index].value = changedItem.previousClause;
+    categoryData.representation = representation;
+    localStorage.setItem("categoryData", JSON.stringify(categoryData));
+
+    showMessage(`Replaced "${article}" with previous clause.`);
+    typeof fetchRepresentationData === "function" ? fetchRepresentationData() : location.reload();
+  } catch (error) {
+    console.error("Error in replaceSingleItem:", error);
+    showMessage("An error occurred while replacing the item.", true);
+  }
+}
+
+function showMessage(msg, isError = false) {
+  const contentArea = document.getElementById("databaseContentArea") || document.body;
+
+  const div = document.createElement("div");
+  div.textContent = msg;
+  div.style.background = isError ? "#ffe6e6" : "#e6ffe6";
+  div.style.color = isError ? "red" : "green";
+  div.style.padding = "10px";
+  div.style.marginBottom = "10px";
+  div.style.border = "1px solid #ccc";
+  div.style.borderRadius = "5px";
+  div.style.fontSize = "14px";
+  contentArea.prepend(div);
+
+  setTimeout(() => div.remove(), 4000);
 }
