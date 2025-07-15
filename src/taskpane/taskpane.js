@@ -585,9 +585,15 @@ async function clearCurrentContent() {
 }
 
 function saveCategoryData() {
+  const dataToSave = {
+    closing: Array.isArray(categoryData.closing) ? categoryData.closing : [],
+    postClosing: Array.isArray(categoryData.postClosing) ? categoryData.postClosing : [],
+    representation: Array.isArray(categoryData.representation) ? categoryData.representation : [],
+  };
+
   try {
-    localStorage.setItem("categoryData", JSON.stringify(categoryData));
-    console.log("Auto-saved categoryData to localStorage");
+    localStorage.setItem("categoryData", JSON.stringify(dataToSave));
+    console.log("Saved structured categoryData to localStorage");
   } catch (error) {
     console.error("Failed to save categoryData:", error);
   }
@@ -595,13 +601,29 @@ function saveCategoryData() {
 
 // Helper to load saved data on startup
 function loadSavedCategoryData() {
-  const savedData = localStorage.getItem("categoryData");
-  if (savedData) {
-    try {
-      categoryData = JSON.parse(savedData);
-      console.log("Loaded saved categoryData:", categoryData);
-    } catch (error) {
-      console.error("Failed to parse saved data:", error);
-    }
+  const defaultStructure = {
+    closing: [],
+    postClosing: [],
+    representation: [],
+  };
+
+  try {
+    const saved = JSON.parse(localStorage.getItem("categoryData") || "{}");
+
+    // Fix missing keys and wrong structure
+    categoryData = {
+      closing: Array.isArray(saved.closing) ? saved.closing : [],
+      postClosing: Array.isArray(saved.postClosing) ? saved.postClosing : [],
+      representation: Array.isArray(saved.representation) ? saved.representation : [],
+    };
+
+    // Save back the cleaned-up version
+    localStorage.setItem("categoryData", JSON.stringify(categoryData));
+
+    console.log("Loaded and corrected categoryData:", categoryData);
+  } catch (error) {
+    console.error("Failed to load/parse categoryData:", error);
+    categoryData = { ...defaultStructure };
+    localStorage.setItem("categoryData", JSON.stringify(categoryData));
   }
 }

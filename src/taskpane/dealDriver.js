@@ -703,11 +703,10 @@ function displayRepresentationData(response) {
 
   contentArea.innerHTML = html;
 }
-
 function replaceWithOldData() {
   try {
-    const categoryData = JSON.parse(localStorage.getItem("categoryData") || "{}");
-    const representation = categoryData.representation || [];
+    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+    const representation = localData.representation || [];
 
     const lastResponse = JSON.parse(localStorage.getItem("lastRepresentationApiResponse") || "{}");
     const changedItems = lastResponse.data?.changedItems || [];
@@ -730,8 +729,15 @@ function replaceWithOldData() {
       }
     });
 
-    categoryData.representation = representation;
-    localStorage.setItem("categoryData", JSON.stringify(categoryData));
+    localData.representation = representation;
+    localStorage.setItem("categoryData", JSON.stringify(localData));
+
+    // Sync updated localData to global categoryData
+    if (typeof categoryData !== "undefined") {
+      Object.assign(categoryData, localData);
+    }
+
+    updateCategoryDisplay("representation");
 
     showMessage(`Replaced ${replaced} item(s) with previous clauses.`);
     typeof fetchRepresentationData === "function" ? fetchRepresentationData() : location.reload();
@@ -740,10 +746,11 @@ function replaceWithOldData() {
     showMessage("An error occurred while replacing data.", true);
   }
 }
+
 function replaceSingleItem(article) {
   try {
-    const categoryData = JSON.parse(localStorage.getItem("categoryData") || "{}");
-    const representation = categoryData.representation || [];
+    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+    const representation = localData.representation || [];
 
     const lastResponse = JSON.parse(localStorage.getItem("lastRepresentationApiResponse") || "{}");
     const changedItems = lastResponse.data?.changedItems || [];
@@ -761,8 +768,15 @@ function replaceSingleItem(article) {
     }
 
     representation[index].value = changedItem.previousClause;
-    categoryData.representation = representation;
-    localStorage.setItem("categoryData", JSON.stringify(categoryData));
+    localData.representation = representation;
+    localStorage.setItem("categoryData", JSON.stringify(localData));
+
+    // Sync updated localData to global categoryData
+    if (typeof categoryData !== "undefined") {
+      Object.assign(categoryData, localData);
+    }
+
+    updateCategoryDisplay("representation");
 
     showMessage(`Replaced "${article}" with previous clause.`);
     typeof fetchRepresentationData === "function" ? fetchRepresentationData() : location.reload();
