@@ -118,7 +118,7 @@ async function handleCategoryChange() {
   document.getElementById("logStyleContentButton").disabled = !isDataLoaded || !selectedCategory;
 
   if (selectedCategory && categoryData[selectedCategory]) {
-    const clipboardString = formatCategoryData(selectedCategory);
+    // const clipboardString = formatCategoryData(selectedCategory);
     // await silentCopyToClipboard(clipboardString);
   }
 }
@@ -256,6 +256,160 @@ async function loadAllParagraphsData() {
   }
 }
 
+// async function getListInfoFromSelection() {
+//   if (!isDataLoaded) {
+//     console.log("Data is still loading. Please wait.");
+//     showCopyMessage(false, "Data is still loading. Please wait.");
+//     return;
+//   }
+
+//   const selectedCategory = document.getElementById("categorySelect").value;
+//   console.log("Selected Category:", selectedCategory);
+
+//   if (!selectedCategory) {
+//     console.log("No category selected");
+//     showCopyMessage(false, "No category selected");
+//     return;
+//   }
+
+//   try {
+//     await Word.run(async (context) => {
+//       const selection = context.document.getSelection();
+//       const paragraphs = selection.paragraphs;
+
+//       paragraphs.load("items");
+//       await context.sync();
+
+//       console.log("Selected paragraphs count:", paragraphs.items.length);
+//       if (paragraphs.items.length === 0) {
+//         console.log("No paragraphs found in selection");
+//         showCopyMessage(false, "No paragraphs found in selection");
+//         return;
+//       }
+
+//       const paragraphPromises = paragraphs.items.map((paragraph) => {
+//         paragraph.load("text,isListItem");
+//         if (paragraph.isListItem) {
+//           paragraph.listItem.load("level,listString");
+//         }
+//         return paragraph;
+//       });
+
+//       await context.sync();
+
+//       let newSelections = [];
+
+//       for (const paragraph of paragraphs.items) {
+//         const selectedText = paragraph.text.trim().replace(/^\.\s*/, "");
+//         const normalizedSelectedText = normalizeText(selectedText);
+//         console.log("Processing paragraph text:", selectedText);
+
+//         const matchingParagraphs = allParagraphsData.filter((para) => {
+//           const normalizedParaText = normalizeText(para.originalText || para.value);
+//           return (
+//             normalizedParaText === normalizedSelectedText ||
+//             para.originalText === selectedText ||
+//             para.value === normalizedSelectedText
+//           );
+//         });
+//         console.log("Found matches:", matchingParagraphs.length);
+
+//         if (matchingParagraphs.length > 0) {
+//           let bestMatch = matchingParagraphs[0];
+
+//           if (matchingParagraphs.length > 1 && paragraph.isListItem) {
+//             const selectedLevel = paragraph.listItem.level;
+//             const selectedListString = paragraph.listItem.listString;
+
+//             const exactMatch = matchingParagraphs.find(
+//               (para) => para.isListItem && para.level === selectedLevel && para.listString === selectedListString
+//             );
+
+//             if (exactMatch) {
+//               bestMatch = exactMatch;
+//             }
+//           }
+
+//           const isDuplicate = categoryData[selectedCategory].some(
+//             (item) => item.key === bestMatch.key && item.value === bestMatch.value
+//           );
+
+//           if (!isDuplicate) {
+//             if (selectedCategory === "closing" || selectedCategory === "postClosing") {
+//               if (bestMatch.key) {
+//                 const keyParts = bestMatch.key.split(/(?<=^[^\d]+)(?=\d)/);
+//                 const mainHeadingKey = keyParts[0].trim().replace(/\.$/, "");
+//                 const sectionHeading = bestMatch.key.trim();
+//                 const content = bestMatch.value.trim();
+
+//                 const matchedParagraph = allParagraphsData.find((para) => para.key.trim() === mainHeadingKey);
+
+//                 const fullMainHeading = matchedParagraph
+//                   ? mainHeadingKey + " " + matchedParagraph.value
+//                   : mainHeadingKey;
+
+//                 newSelections.push({
+//                   mainHeading: fullMainHeading,
+//                   sectionHeading: sectionHeading,
+//                   content: content,
+//                 });
+//               }
+//             } else {
+//               newSelections.push({
+//                 key: bestMatch.key,
+//                 value: bestMatch.value,
+//               });
+//             }
+//           }
+//         }
+//       }
+
+//       if (newSelections.length > 0) {
+//         // Create deep copies of the objects to prevent reference issues
+//         categoryData[selectedCategory] = [
+//           ...categoryData[selectedCategory].map((item) => ({ ...item })),
+//           ...newSelections.map((item) => ({ ...item })),
+//         ];
+
+//         console.log("Updated category data:", JSON.stringify(categoryData[selectedCategory], null, 2));
+
+//         categoryData[selectedCategory].sort((a, b) => {
+//           const aNumbers = a.key ? a.key.split(".").map((num) => parseInt(num)) : [];
+//           const bNumbers = b.key ? b.key.split(".").map((num) => parseInt(num)) : [];
+
+//           for (let i = 0; i < Math.max(aNumbers.length, bNumbers.length); i++) {
+//             if (isNaN(aNumbers[i])) return 1;
+//             if (isNaN(bNumbers[i])) return -1;
+//             if (aNumbers[i] !== bNumbers[i]) return aNumbers[i] - bNumbers[i];
+//           }
+//           return 0;
+//         });
+//         saveCategoryData();
+//         updateCategoryDisplay(selectedCategory);
+
+//         // let clipboardString;
+//         // if (selectedCategory === "closing" || selectedCategory === "postClosing") {
+//         //   clipboardString = formatClosingChecklistData(selectedCategory);
+//         // } else {
+//         //   clipboardString = formatCategoryData(selectedCategory);
+//         // }
+
+//         // console.log("Clipboard content to be copied:", clipboardString);
+//         // await copyToClipboard(clipboardString);
+//       } else {
+//         console.log("No new selections to add");
+//         showCopyMessage(false, "No new matching content found in selection");
+//       }
+//     });
+//   } catch (error) {
+//     console.error("An error occurred while processing selection:", error);
+//     showCopyMessage(false, "Error processing selection");
+//     if (error instanceof OfficeExtension.Error) {
+//       console.error("Debug info:", error.debugInfo);
+//     }
+//   }
+// }
+
 async function getListInfoFromSelection() {
   if (!isDataLoaded) {
     console.log("Data is still loading. Please wait.");
@@ -274,9 +428,13 @@ async function getListInfoFromSelection() {
 
   try {
     await Word.run(async (context) => {
+      // 1. Get current data from localStorage
+      const savedData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+      const currentCategoryItems = savedData[selectedCategory] || [];
+
+      // 2. Process Word selection
       const selection = context.document.getSelection();
       const paragraphs = selection.paragraphs;
-
       paragraphs.load("items");
       await context.sync();
 
@@ -287,6 +445,7 @@ async function getListInfoFromSelection() {
         return;
       }
 
+      // Load paragraph details
       const paragraphPromises = paragraphs.items.map((paragraph) => {
         paragraph.load("text,isListItem");
         if (paragraph.isListItem) {
@@ -294,15 +453,14 @@ async function getListInfoFromSelection() {
         }
         return paragraph;
       });
-
       await context.sync();
 
       let newSelections = [];
 
+      // 3. Match selected paragraphs with document data
       for (const paragraph of paragraphs.items) {
         const selectedText = paragraph.text.trim().replace(/^\.\s*/, "");
         const normalizedSelectedText = normalizeText(selectedText);
-        console.log("Processing paragraph text:", selectedText);
 
         const matchingParagraphs = allParagraphsData.filter((para) => {
           const normalizedParaText = normalizeText(para.originalText || para.value);
@@ -312,11 +470,11 @@ async function getListInfoFromSelection() {
             para.value === normalizedSelectedText
           );
         });
-        console.log("Found matches:", matchingParagraphs.length);
 
         if (matchingParagraphs.length > 0) {
           let bestMatch = matchingParagraphs[0];
 
+          // Handle list items more precisely
           if (matchingParagraphs.length > 1 && paragraph.isListItem) {
             const selectedLevel = paragraph.listItem.level;
             const selectedListString = paragraph.listItem.listString;
@@ -325,13 +483,12 @@ async function getListInfoFromSelection() {
               (para) => para.isListItem && para.level === selectedLevel && para.listString === selectedListString
             );
 
-            if (exactMatch) {
-              bestMatch = exactMatch;
-            }
+            if (exactMatch) bestMatch = exactMatch;
           }
 
-          const isDuplicate = categoryData[selectedCategory].some(
-            (item) => item.key === bestMatch.key && item.value === bestMatch.value
+          // Check against localStorage data for duplicates
+          const isDuplicate = currentCategoryItems.some(
+            (item) => (item.key === bestMatch.key && item.value === bestMatch.value) || item.content === bestMatch.value // For closing/post-closing items
           );
 
           if (!isDuplicate) {
@@ -343,7 +500,6 @@ async function getListInfoFromSelection() {
                 const content = bestMatch.value.trim();
 
                 const matchedParagraph = allParagraphsData.find((para) => para.key.trim() === mainHeadingKey);
-
                 const fullMainHeading = matchedParagraph
                   ? mainHeadingKey + " " + matchedParagraph.value
                   : mainHeadingKey;
@@ -364,49 +520,34 @@ async function getListInfoFromSelection() {
         }
       }
 
+      // 4. Update localStorage if new items found
       if (newSelections.length > 0) {
-        // Create deep copies of the objects to prevent reference issues
-        categoryData[selectedCategory] = [
-          ...categoryData[selectedCategory].map((item) => ({ ...item })),
-          ...newSelections.map((item) => ({ ...item })),
-        ];
+        const updatedData = {
+          ...savedData,
+          [selectedCategory]: [...currentCategoryItems, ...newSelections].sort((a, b) => {
+            const aNumbers = a.key ? a.key.split(".").map(Number) : [];
+            const bNumbers = b.key ? b.key.split(".").map(Number) : [];
 
-        console.log("Updated category data:", JSON.stringify(categoryData[selectedCategory], null, 2));
+            for (let i = 0; i < Math.max(aNumbers.length, bNumbers.length); i++) {
+              if (isNaN(aNumbers[i])) return 1;
+              if (isNaN(bNumbers[i])) return -1;
+              if (aNumbers[i] !== bNumbers[i]) return aNumbers[i] - bNumbers[i];
+            }
+            return 0;
+          }),
+        };
 
-        categoryData[selectedCategory].sort((a, b) => {
-          const aNumbers = a.key ? a.key.split(".").map((num) => parseInt(num)) : [];
-          const bNumbers = b.key ? b.key.split(".").map((num) => parseInt(num)) : [];
-
-          for (let i = 0; i < Math.max(aNumbers.length, bNumbers.length); i++) {
-            if (isNaN(aNumbers[i])) return 1;
-            if (isNaN(bNumbers[i])) return -1;
-            if (aNumbers[i] !== bNumbers[i]) return aNumbers[i] - bNumbers[i];
-          }
-          return 0;
-        });
-        saveCategoryData();
+        localStorage.setItem("categoryData", JSON.stringify(updatedData));
         updateCategoryDisplay(selectedCategory);
-
-        let clipboardString;
-        if (selectedCategory === "closing" || selectedCategory === "postClosing") {
-          clipboardString = formatClosingChecklistData(selectedCategory);
-        } else {
-          clipboardString = formatCategoryData(selectedCategory);
-        }
-
-        console.log("Clipboard content to be copied:", clipboardString);
-        // await copyToClipboard(clipboardString);
+        showCopyMessage(true, "Content added successfully!");
       } else {
         console.log("No new selections to add");
-        showCopyMessage(false, "No new matching content found in selection");
+        showCopyMessage(false, "No new matching content found");
       }
     });
   } catch (error) {
-    console.error("An error occurred while processing selection:", error);
-    showCopyMessage(false, "Error processing selection");
-    if (error instanceof OfficeExtension.Error) {
-      console.error("Debug info:", error.debugInfo);
-    }
+    console.error("Selection processing failed:", error);
+    showCopyMessage(false, "Error: " + error.message);
   }
 }
 
@@ -472,7 +613,10 @@ function formatClosingChecklistData(data, selectedCategory) {
   return JSON.stringify(formattedData, null, 2);
 }
 function updateCategoryDisplay(category) {
-  console.log("Updating display for:", category, "with data:", categoryData[category]);
+  // Get data DIRECTLY from localStorage (only change needed)
+  const displayData = JSON.parse(localStorage.getItem("categoryData") || {})[category] || [];
+
+  // Rest of the original function remains EXACTLY the same
   const contentElement = document.querySelector(`#${category}Content .content-area`);
   if (!contentElement) {
     console.error("Content element not found for category:", category);
@@ -481,8 +625,8 @@ function updateCategoryDisplay(category) {
 
   contentElement.innerHTML = "";
 
-  if (categoryData[category] && categoryData[category].length > 0) {
-    categoryData[category].forEach((pair) => {
+  if (displayData.length > 0) {
+    displayData.forEach((pair) => {
       if (category === "closing" || category === "postClosing") {
         const entries = [
           { key: "Article", value: pair.mainHeading },
