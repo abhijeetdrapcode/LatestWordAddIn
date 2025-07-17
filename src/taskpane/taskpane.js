@@ -119,32 +119,32 @@ async function handleCategoryChange() {
 
   if (selectedCategory && categoryData[selectedCategory]) {
     const clipboardString = formatCategoryData(selectedCategory);
-    await silentCopyToClipboard(clipboardString);
+    // await silentCopyToClipboard(clipboardString);
   }
 }
 
-async function silentCopyToClipboard(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (err) {
-    console.log("Fallback: using execCommand for copy");
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-9999px";
-    textArea.style.top = "-9999px";
-    document.body.appendChild(textArea);
+// async function silentCopyToClipboard(text) {
+//   try {
+//     await navigator.clipboard.writeText(text);
+//   } catch (err) {
+//     console.log("Fallback: using execCommand for copy");
+//     const textArea = document.createElement("textarea");
+//     textArea.value = text;
+//     textArea.style.position = "fixed";
+//     textArea.style.left = "-9999px";
+//     textArea.style.top = "-9999px";
+//     document.body.appendChild(textArea);
 
-    try {
-      textArea.select();
-      document.execCommand("copy");
-    } catch (err) {
-      console.error("Failed to copy text:", err);
-    } finally {
-      document.body.removeChild(textArea);
-    }
-  }
-}
+//     try {
+//       textArea.select();
+//       document.execCommand("copy");
+//     } catch (err) {
+//       console.error("Failed to copy text:", err);
+//     } finally {
+//       document.body.removeChild(textArea);
+//     }
+//   }
+// }
 
 function normalizeText(text) {
   if (!text) return "";
@@ -395,7 +395,7 @@ async function getListInfoFromSelection() {
         }
 
         console.log("Clipboard content to be copied:", clipboardString);
-        await copyToClipboard(clipboardString);
+        // await copyToClipboard(clipboardString);
       } else {
         console.log("No new selections to add");
         showCopyMessage(false, "No new matching content found in selection");
@@ -510,41 +510,41 @@ function updateCategoryDisplay(category) {
   }
 }
 
-async function copyToClipboard(text) {
-  if (!text || text === "{}") {
-    console.error("Empty content detected. Data state:", {
-      categoryData,
-      allParagraphsData,
-      selectedCategory: document.getElementById("categorySelect").value,
-    });
-    showCopyMessage(false, "No content to copy");
-    return;
-  }
+// async function copyToClipboard(text) {
+//   if (!text || text === "{}") {
+//     console.error("Empty content detected. Data state:", {
+//       categoryData,
+//       allParagraphsData,
+//       selectedCategory: document.getElementById("categorySelect").value,
+//     });
+//     showCopyMessage(false, "No content to copy");
+//     return;
+//   }
 
-  try {
-    await navigator.clipboard.writeText(text);
-    showCopyMessage(true, "Content copied to clipboard!");
-  } catch (err) {
-    console.log("Fallback: using execCommand for copy");
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-9999px";
-    textArea.style.top = "-9999px";
-    document.body.appendChild(textArea);
+//   try {
+//     await navigator.clipboard.writeText(text);
+//     showCopyMessage(true, "Content copied to clipboard!");
+//   } catch (err) {
+//     console.log("Fallback: using execCommand for copy");
+//     const textArea = document.createElement("textarea");
+//     textArea.value = text;
+//     textArea.style.position = "fixed";
+//     textArea.style.left = "-9999px";
+//     textArea.style.top = "-9999px";
+//     document.body.appendChild(textArea);
 
-    try {
-      textArea.select();
-      const successful = document.execCommand("copy");
-      showCopyMessage(successful, successful ? "Content copied to clipboard!" : "Failed to copy content");
-    } catch (err) {
-      console.error("Failed to copy text:", err);
-      showCopyMessage(false, "Failed to copy content");
-    } finally {
-      document.body.removeChild(textArea);
-    }
-  }
-}
+//     try {
+//       textArea.select();
+//       const successful = document.execCommand("copy");
+//       showCopyMessage(successful, successful ? "Content copied to clipboard!" : "Failed to copy content");
+//     } catch (err) {
+//       console.error("Failed to copy text:", err);
+//       showCopyMessage(false, "Failed to copy content");
+//     } finally {
+//       document.body.removeChild(textArea);
+//     }
+//   }
+// }
 
 function showCopyMessage(successful, message) {
   const copyMessage = document.getElementById("copyMessage");
@@ -578,7 +578,7 @@ async function clearCurrentContent() {
   }
 
   const clipboardString = "{}";
-  await silentCopyToClipboard(clipboardString);
+  // await silentCopyToClipboard(clipboardString);
 
   console.log(`Cleared content for category: ${selectedCategory}`);
   showCopyMessage(true, "Category content cleared");

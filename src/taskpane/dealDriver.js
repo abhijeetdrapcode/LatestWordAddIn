@@ -86,6 +86,13 @@ function initDealDriverIntegration() {
 
       // Show the deal options dropdown and button
       dealOptions.style.display = "block";
+      const categoryData = {
+        closing: [],
+        postClosing: [],
+        representation: [],
+      };
+
+      localStorage.setItem("categoryData", JSON.stringify(categoryData));
 
       // Initialize post-login elements and event listeners
       initPostLoginElements();
@@ -600,105 +607,57 @@ function displayRepresentationData(response) {
   if (!contentArea) return;
 
   if (!response.success || !response.data) {
-    contentArea.innerHTML = `
-      <div style="color: red; text-align: center; padding: 20px;">
-        Error loading data
-      </div>
-    `;
+    contentArea.innerHTML = '<div style="color:#dc3545;padding:4px 0;font-size:13px;">Error loading data</div>';
     return;
   }
 
   // Save to localStorage
-  localStorage.setItem("lastRepresentationApiResponse", JSON.stringify(response));
-  if (response.data.oldData) {
-    localStorage.setItem("fetchedOldRepresentationData", JSON.stringify(response.data.oldData));
+  try {
+    localStorage.setItem("lastRepresentationApiResponse", JSON.stringify(response));
+    if (response.data.oldData) {
+      localStorage.setItem("fetchedOldRepresentationData", JSON.stringify(response.data.oldData));
+    }
+  } catch (e) {
+    console.warn("localStorage not available");
   }
 
-  const { changedItems, newItems, hasChanges } = response.data;
+  const { changedItems, hasChanges } = response.data;
   let html = "";
 
   if (!hasChanges) {
-    html = `
-      <div style="text-align: center; padding: 20px; color: #666;">
-        No changes detected - all data matches
-      </div>
-    `;
+    html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
   } else {
     html += `
-      <div style="text-align: center; margin-bottom: 20px;">
-        <button 
-          onclick="replaceWithOldData()" 
-          style="background-color: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold;"
-        >
-          Replace All with Old Data
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <div style="font-weight:600;font-size:13px;">Modified (${changedItems.length})</div>
+        <button onclick="replaceWithOldData()" style="background:none;color:#dc3545;border:1px solid #dc3545;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:11px;">
+          Replace All
         </button>
       </div>
     `;
 
-    if (changedItems.length > 0) {
+    changedItems.forEach((item) => {
       html += `
-        <div style="margin-bottom: 30px;">
-          <h3 style="color: #007bff; margin-bottom: 15px; border-bottom: 2px solid #007bff; padding-bottom: 5px;">
-            Modified Items (${changedItems.length})
-          </h3>
-      `;
-
-      changedItems.forEach((item) => {
-        html += `
-          <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h4 style="color: #495057; margin: 0 0 10px 0; font-size: 16px; font-weight: 600;">
-              ${item.article}
-            </h4>
-            <div style="margin-bottom: 8px;">
-              <strong style="color: #dc3545;">Previous:</strong> 
-              <span style="background-color: #f8d7da; padding: 2px 6px; border-radius: 3px; display: inline-block; margin-top: 5px;">
-                ${item.previousClause}
-              </span>
+        <div style="margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;">
+          <div style="display:flex;align-items:center;margin-bottom:2px;">
+            <div style="font-weight:600;font-size:12px;margin-right:6px;">${item.article}</div>
+            <button onclick="replaceSingleItem('${item.article.replace(/'/g, "\\'")}')" style="background:none;color:#ffc107;border:1px solid #ffc107;padding:1px 4px;border-radius:2px;cursor:pointer;font-size:10px;">
+              Replace
+            </button>
+          </div>
+          <div style="display:flex;gap:8px;font-size:12px;">
+            <div style="flex:1;color:#dc3545;">
+              <div style="font-size:10px;color:#888;margin-bottom:1px;">Previous</div>
+              <div>${item.previousClause}</div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <strong style="color: #28a745;">Updated:</strong> 
-                <span style="background-color: #d4edda; padding: 2px 6px; border-radius: 3px; display: inline-block; margin-top: 5px;">
-                  ${item.newClause}
-                </span>
-              </div>
-              <button 
-                onclick="replaceSingleItem('${item.article.replace(/'/g, "\\'")}')" 
-                style="margin-left: 10px; background-color: #ffc107; border: none; color: black; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;"
-              >
-                Replace This
-              </button>
+            <div style="flex:1;color:#28a745;">
+              <div style="font-size:10px;color:#888;margin-bottom:1px;">Updated</div>
+              <div>${item.newClause}</div>
             </div>
           </div>
-        `;
-      });
-
-      html += `</div>`;
-    }
-
-    if (newItems.length > 0) {
-      html += `
-        <div style="margin-bottom: 30px;">
-          <h3 style="color: #28a745; margin-bottom: 15px; border-bottom: 2px solid #28a745; padding-bottom: 5px;">
-            New Items (${newItems.length})
-          </h3>
+        </div>
       `;
-
-      newItems.forEach((item) => {
-        html += `
-          <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h4 style="color: #495057; margin: 0 0 10px 0; font-size: 16px; font-weight: 600;">
-              ${item.article}
-            </h4>
-            <div style="background-color: #d4edda; padding: 8px; border-radius: 5px; border-left: 4px solid #28a745;">
-              ${item.clause}
-            </div>
-          </div>
-        `;
-      });
-
-      html += `</div>`;
-    }
+    });
   }
 
   contentArea.innerHTML = html;
