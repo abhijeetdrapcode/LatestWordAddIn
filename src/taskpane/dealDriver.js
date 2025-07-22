@@ -117,7 +117,8 @@ function initPostLoginElements() {
 
   if (fetchDataButton) {
     fetchDataButton.addEventListener("click", async () => {
-      await fetchRepresentationData();
+      // await fetchRepresentationData();
+      await fetchClosingData();
     });
   }
 
@@ -621,15 +622,15 @@ function displayRepresentationData(response) {
     console.warn("localStorage not available");
   }
 
-  const { changedItems, hasChanges } = response.data;
+  const { changedItems = [], hasChanges } = response.data;
   let html = "";
 
   if (!hasChanges) {
     html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
   } else {
     html += `
-      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-        <div style="font-weight:600;font-size:13px;">Modified (${changedItems.length})</div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-weight:600;font-size:13px;color:#333;">Modified (${changedItems.length})</div>
         <button onclick="replaceWithOldData()" style="background:none;color:#dc3545;border:1px solid #dc3545;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:11px;">
           Replace All
         </button>
@@ -637,22 +638,66 @@ function displayRepresentationData(response) {
     `;
 
     changedItems.forEach((item) => {
+      const safeArticle = item.article ? item.article.replace(/'/g, "\\'") : "";
+
+      const previousClause = item.previousClause || "";
+      const newClause = item.newClause || "";
+
+      // Function to highlight differences between two texts
+      const highlightDifferences = (oldText, newText) => {
+        const oldWords = oldText.split(/(\s+)/);
+        const newWords = newText.split(/(\s+)/);
+
+        let oldOutput = [];
+        let newOutput = [];
+
+        // Compare word by word
+        let i = 0,
+          j = 0;
+        while (i < oldWords.length || j < newWords.length) {
+          if (i < oldWords.length && j < newWords.length && oldWords[i] === newWords[j]) {
+            // Words match
+            oldOutput.push(oldWords[i]);
+            newOutput.push(newWords[j]);
+            i++;
+            j++;
+          } else {
+            // Words don't match
+            if (i < oldWords.length) {
+              oldOutput.push(`<span style="text-decoration:line-through;color:#a00;">${oldWords[i]}</span>`);
+              i++;
+            }
+            if (j < newWords.length) {
+              newOutput.push(`<span style="text-decoration:underline;color:#080;">${newWords[j]}</span>`);
+              j++;
+            }
+          }
+        }
+
+        return {
+          oldText: oldOutput.join(""),
+          newText: newOutput.join(""),
+        };
+      };
+
+      const highlighted = highlightDifferences(previousClause, newClause);
+
       html += `
-        <div style="margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;">
-          <div style="display:flex;align-items:center;margin-bottom:2px;">
-            <div style="font-weight:600;font-size:12px;margin-right:6px;">${item.article}</div>
-            <button onclick="replaceSingleItem('${item.article.replace(/'/g, "\\'")}')" style="background:none;color:#ffc107;border:1px solid #ffc107;padding:1px 4px;border-radius:2px;cursor:pointer;font-size:10px;">
+        <div style="margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px;">
+          <div style="display:flex;align-items:center;margin-bottom:1px;">
+            <div style="font-weight:600;font-size:12px;color:#333;">${item.article || "No article"}</div>
+            <button onclick="replaceSingleItem('${safeArticle}')" style="margin-left:8px;background:none;color:#e6a700;border:1px solid #e6a700;padding:1px 4px;border-radius:2px;cursor:pointer;font-size:10px;">
               Replace
             </button>
           </div>
-          <div style="display:flex;gap:8px;font-size:12px;">
-            <div style="flex:1;color:#dc3545;">
-              <div style="font-size:10px;color:#888;margin-bottom:1px;">Previous</div>
-              <div>${item.previousClause}</div>
+          <div style="display:flex;gap:8px;font-size:12px;margin-top:2px;">
+            <div style="flex:1;border-right:1px solid #ddd;padding-right:8px;">
+              <div style="font-size:10px;color:#666;margin-bottom:1px;">Previous</div>
+              <div style="color:#333;">${highlighted.oldText}</div>
             </div>
-            <div style="flex:1;color:#28a745;">
-              <div style="font-size:10px;color:#888;margin-bottom:1px;">Updated</div>
-              <div>${item.newClause}</div>
+            <div style="flex:1;padding-left:8px;">
+              <div style="font-size:10px;color:#666;margin-bottom:1px;">Updated</div>
+              <div style="color:#333;">${highlighted.newText}</div>
             </div>
           </div>
         </div>
@@ -760,4 +805,321 @@ function showMessage(msg, isError = false) {
   contentArea.prepend(div);
 
   setTimeout(() => div.remove(), 4000);
+}
+
+// This is the code i am adding for fetching the data of closing checklist
+async function fetchClosingData() {
+  console.log("Fetch closing data function triggered");
+
+  // Helper function to display messages
+  const showMessage = (message, isError = false) => {
+    console.log(isError ? `Error: ${message}` : `Success: ${message}`);
+  };
+
+  try {
+    // Check for required UI elements and selections
+    const dealSelect = document.getElementById("dealSelect");
+    if (!dealSelect) {
+      showMessage("Deal selection not found.", true);
+      return;
+    }
+
+    const selectedDealName = dealSelect.options[dealSelect.selectedIndex]?.text;
+    if (!selectedDealName) {
+      showMessage("Please select a deal first.", true);
+      return;
+    }
+
+    // Get required data from localStorage
+    const environment = localStorage.getItem("selectedEnvironment");
+    if (!environment) {
+      showMessage("Environment not found. Please login again.", true);
+      return;
+    }
+
+    const loginResponseDataString = localStorage.getItem("loginResponseData");
+    if (!loginResponseDataString) {
+      showMessage("Deal data not found in local storage.", true);
+      return;
+    }
+
+    // Get closing data from localStorage
+    const categoryDataString = localStorage.getItem("categoryData");
+    let closingData = [];
+
+    if (categoryDataString) {
+      try {
+        const categoryData = JSON.parse(categoryDataString);
+        closingData = categoryData.closing || [];
+        console.log("Found closing data in localStorage:", closingData);
+      } catch (e) {
+        console.error("Error parsing categoryData:", e);
+      }
+    }
+
+    // Find deal UUID from login data
+    const loginResponseData = JSON.parse(loginResponseDataString);
+    const dealsArray = loginResponseData.userDetails?.tenantId || [];
+    const matchedDeal = dealsArray.find((deal) => deal.name === selectedDealName);
+
+    if (!matchedDeal) {
+      showMessage("Could not find matching deal for the selected name.", true);
+      return;
+    }
+
+    const dealUuid = matchedDeal.deal?.[0]?.uuid;
+    if (!dealUuid) {
+      showMessage("Could not find deal UUID for the selected deal.", true);
+      return;
+    }
+
+    // Prepare API request payload
+    const requestBody = {
+      environment: environment,
+      dealId: dealUuid,
+      closingData: closingData, // Include the closing data
+    };
+
+    console.log("Sending API request with payload:", requestBody);
+
+    // Make API call
+    const response = await fetch("http://localhost:3002/getClosingData", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log("This is the data after fetch: ", data);
+      displayClosingData(data);
+      showMessage("Closing data fetched successfully!");
+    } else {
+      const errorData = await response.text();
+      showMessage(`Failed to fetch data. Status: ${response.status}`, true);
+    }
+  } catch (error) {
+    console.error("Error in fetchClosingData:", error);
+    showMessage(`An unexpected error occurred: ${error.message}`, true);
+  }
+}
+
+function displayClosingData(response) {
+  const contentArea = document.getElementById("databaseContentArea");
+  if (!contentArea) return;
+
+  if (!response.success || !response.data) {
+    contentArea.innerHTML = '<div style="color:#dc3545;padding:4px 0;font-size:13px;">Error loading data</div>';
+    return;
+  }
+
+  // Save to localStorage
+  try {
+    localStorage.setItem("lastClosingApiResponse", JSON.stringify(response));
+    if (response.data.oldData) {
+      localStorage.setItem("fetchedOldClosingData", JSON.stringify(response.data.oldData));
+    }
+  } catch (e) {
+    console.warn("localStorage not available");
+  }
+
+  const { changedItems = [], newItems = [], hasChanges } = response.data;
+  let html = "";
+
+  if (!hasChanges) {
+    html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
+  } else {
+    // Changed items section
+    if (changedItems.length > 0) {
+      html += `
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <div style="font-weight:600;font-size:13px;">Modified (${changedItems.length})</div>
+          <button onclick="replaceWithOldClosingData()" style="background:none;color:#dc3545;border:1px solid #dc3545;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:11px;">
+            Replace All
+          </button>
+        </div>
+      `;
+
+      changedItems.forEach((item) => {
+        const safeSectionHeading = item.sectionHeading ? item.sectionHeading.replace(/'/g, "\\'") : "";
+
+        const previousContent = item.previousContent || "";
+        const newContent = item.newContent || "";
+
+        // Function to highlight differences between two texts
+        const highlightDifferences = (oldText, newText) => {
+          const oldWords = oldText.split(/(\s+)/);
+          const newWords = newText.split(/(\s+)/);
+
+          let oldOutput = [];
+          let newOutput = [];
+
+          // Compare word by word
+          let i = 0,
+            j = 0;
+          while (i < oldWords.length || j < newWords.length) {
+            if (i < oldWords.length && j < newWords.length && oldWords[i] === newWords[j]) {
+              // Words match
+              oldOutput.push(oldWords[i]);
+              newOutput.push(newWords[j]);
+              i++;
+              j++;
+            } else {
+              // Words don't match
+              if (i < oldWords.length) {
+                oldOutput.push(`<span style="text-decoration:line-through;color:#dc3545;">${oldWords[i]}</span>`);
+                i++;
+              }
+              if (j < newWords.length) {
+                newOutput.push(`<span style="text-decoration:underline;color:#28a745;">${newWords[j]}</span>`);
+                j++;
+              }
+            }
+          }
+
+          return {
+            oldText: oldOutput.join(""),
+            newText: newOutput.join(""),
+          };
+        };
+
+        const highlighted = highlightDifferences(previousContent, newContent);
+
+        html += `
+          <div style="margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px;">
+            <div style="display:flex;align-items:center;margin-bottom:1px;">
+              <div style="font-weight:600;font-size:12px;">${item.sectionHeading || "No heading"}</div>
+              <button onclick="replaceSingleClosingItem('${safeSectionHeading}')" style="margin-left:8px;background:none;color:#ffc107;border:1px solid #ffc107;padding:1px 4px;border-radius:2px;cursor:pointer;font-size:10px;">
+                Replace
+              </button>
+            </div>
+            <div style="display:flex;gap:8px;font-size:12px;margin-top:2px;">
+              <div style="flex:1;border-right:1px solid #ddd;padding-right:8px;">
+                <div style="font-size:10px;color:#888;margin-bottom:1px;">Previous</div>
+                <div>${highlighted.oldText}</div>
+              </div>
+              <div style="flex:1;padding-left:8px;">
+                <div style="font-size:10px;color:#888;margin-bottom:1px;">Updated</div>
+                <div>${highlighted.newText}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    // New items section
+    if (newItems.length > 0) {
+      html += `
+        <div style="margin-top:8px;font-weight:600;font-size:13px;margin-bottom:4px;">
+          New Items (${newItems.length})
+        </div>
+      `;
+      newItems.forEach((item) => {
+        const content = item.content || "No content";
+        html += `
+          <div style="margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;">
+            <div style="font-weight:600;font-size:12px;margin-bottom:1px;">${item.sectionHeading || "No heading"}</div>
+            <div style="font-size:12px;color:#28a745;margin-top:1px;">
+              ${content}
+            </div>
+          </div>
+        `;
+      });
+    }
+  }
+
+  contentArea.innerHTML = html;
+}
+function replaceWithOldClosingData() {
+  try {
+    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+    const closing = localData.closing || [];
+
+    const lastResponse = JSON.parse(localStorage.getItem("lastClosingApiResponse") || "{}");
+    const changedItems = lastResponse.data?.changedItems || [];
+
+    if (!changedItems.length) {
+      showMessage("No changed items found.", true);
+      return;
+    }
+
+    let replaced = 0;
+
+    changedItems.forEach((changedItem) => {
+      const sectionHeading = changedItem.sectionHeading;
+      const previousContent = changedItem.previousContent;
+
+      const index = closing.findIndex((item) => item.key === sectionHeading);
+      if (index !== -1 && previousContent) {
+        closing[index].value = previousContent;
+        replaced++;
+      }
+    });
+
+    localData.closing = closing;
+    localStorage.setItem("categoryData", JSON.stringify(localData));
+
+    // Sync updated localData to global categoryData
+    if (typeof categoryData !== "undefined") {
+      Object.assign(categoryData, localData);
+    }
+
+    updateCategoryDisplay("closing");
+
+    showMessage(`Replaced ${replaced} item(s) with previous values.`);
+    typeof fetchClosingData === "function" ? fetchClosingData() : location.reload();
+  } catch (error) {
+    console.error("Error in replaceWithOldClosingData:", error);
+    showMessage("An error occurred while replacing data.", true);
+  }
+}
+
+function replaceSingleClosingItem(sectionHeading) {
+  try {
+    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+    const closing = localData.closing || [];
+
+    const lastResponse = JSON.parse(localStorage.getItem("lastClosingApiResponse") || "{}");
+    const changedItems = lastResponse.data?.changedItems || [];
+
+    const changedItem = changedItems.find((item) => item.sectionHeading === sectionHeading);
+    if (!changedItem?.previousContent) {
+      showMessage("Previous content not found for this section.", true);
+      return;
+    }
+
+    // Try multiple possible matching strategies
+    const index = closing.findIndex(
+      (item) =>
+        item.sectionHeading === sectionHeading || // First try direct match
+        item.key === sectionHeading || // Fallback to key match
+        item.actionItem === sectionHeading // Another possible field name
+    );
+
+    if (index === -1) {
+      console.error("Could not find section in:", closing);
+      showMessage(`Section "${sectionHeading}" not found in current data.`, true);
+      return;
+    }
+
+    // Perform the replacement
+    closing[index].content = changedItem.previousContent;
+    localData.closing = closing;
+    localStorage.setItem("categoryData", JSON.stringify(localData));
+
+    // Update global state if available
+    if (typeof categoryData !== "undefined") {
+      Object.assign(categoryData, localData);
+    }
+
+    updateCategoryDisplay("closing");
+    showMessage(`Replaced "${sectionHeading}" with previous version.`);
+    fetchClosingData();
+  } catch (error) {
+    console.error("Replacement error:", error);
+    showMessage("Failed to replace item: " + error.message, true);
+  }
 }
