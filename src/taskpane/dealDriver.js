@@ -184,7 +184,7 @@ async function handleLogin(userName, password) {
       const data = await response.json();
       localStorage.setItem("loginResponseData", JSON.stringify(data));
       loginResponseData = data;
-      localStorage.setItem("authToken", data.token);
+      // localStorage.setItem("authToken", data.token);
 
       const dealNames = data.userDetails?.tenantId || [];
       populateDealDropdown(dealNames);
@@ -505,291 +505,465 @@ function togglePassword() {
   }
 }
 
-async function fetchRepresentationData() {
-  console.log("Fetch representation data function triggered");
+// Generic data fetcher for different data types
+class DataFetcher {
+  constructor(dataType) {
+    this.dataType = dataType;
+    this.config = this.getConfig(dataType);
+  }
+
+  getConfig(dataType) {
+    const configs = {
+      representation: {
+        apiEndpoint: "http://localhost:3002/getRepsData",
+        dataKey: "representation",
+        storageKey: "lastRepresentationApiResponse",
+        oldDataKey: "fetchedOldRepresentationData",
+        itemKey: "article",
+        contentKey: "clause",
+        previousKey: "previousClause",
+        newKey: "newClause",
+      },
+      closing: {
+        apiEndpoint: "http://localhost:3002/getClosingData",
+        dataKey: "closing",
+        storageKey: "lastClosingApiResponse",
+        oldDataKey: "fetchedOldClosingData",
+        itemKey: "sectionHeading",
+        contentKey: "content",
+        previousKey: "previousContent",
+        newKey: "newContent",
+      },
+    };
+    return configs[dataType];
+  }
 
   // Helper function to display messages
-  const showMessage = (message, isError = false) => {
+  showMessage(message, isError = false) {
     console.log(isError ? `Error: ${message}` : `Success: ${message}`);
-  };
 
-  try {
-    // Check for required UI elements and selections
+    const contentArea = document.getElementById("databaseContentArea") || document.body;
+    const div = document.createElement("div");
+    div.textContent = message;
+    div.style.background = isError ? "#ffe6e6" : "#e6ffe6";
+    div.style.color = isError ? "red" : "green";
+    div.style.padding = "10px";
+    div.style.marginBottom = "10px";
+    div.style.border = "1px solid #ccc";
+    div.style.borderRadius = "5px";
+    div.style.fontSize = "14px";
+    contentArea.prepend(div);
+
+    setTimeout(() => div.remove(), 4000);
+  }
+
+  // Validate required elements and data
+  validateRequirements() {
     const dealSelect = document.getElementById("dealSelect");
     if (!dealSelect) {
-      showMessage("Deal selection not found.", true);
-      return;
+      throw new Error("Deal selection not found.");
     }
 
     const selectedDealName = dealSelect.options[dealSelect.selectedIndex]?.text;
     if (!selectedDealName) {
-      showMessage("Please select a deal first.", true);
-      return;
+      throw new Error("Please select a deal first.");
     }
 
-    // Get required data from localStorage
     const environment = localStorage.getItem("selectedEnvironment");
     if (!environment) {
-      showMessage("Environment not found. Please login again.", true);
-      return;
+      throw new Error("Environment not found. Please login again.");
     }
 
     const loginResponseDataString = localStorage.getItem("loginResponseData");
     if (!loginResponseDataString) {
-      showMessage("Deal data not found in local storage.", true);
-      return;
+      throw new Error("Deal data not found in local storage.");
     }
 
-    // Get representation data from localStorage
+    return { selectedDealName, environment, loginResponseDataString };
+  }
+
+  // Get data from localStorage
+  getLocalData() {
     const categoryDataString = localStorage.getItem("categoryData");
-    let representationData = [];
+    let data = [];
 
     if (categoryDataString) {
       try {
         const categoryData = JSON.parse(categoryDataString);
-        representationData = categoryData.representation || [];
-        console.log("Found representation data in localStorage:", representationData);
+        data = categoryData[this.config.dataKey] || [];
+        console.log(`Found ${this.dataType} data in localStorage:`, data);
       } catch (e) {
-        console.error("Error parsing categoryData:", e);
+        console.error(`Error parsing categoryData for ${this.dataType}:`, e);
       }
     }
 
-    // Find deal UUID from login data
+    return data;
+  }
+
+  // Find deal UUID from login data
+  getDealUuid(loginResponseDataString, selectedDealName) {
     const loginResponseData = JSON.parse(loginResponseDataString);
     const dealsArray = loginResponseData.userDetails?.tenantId || [];
     const matchedDeal = dealsArray.find((deal) => deal.name === selectedDealName);
 
     if (!matchedDeal) {
-      showMessage("Could not find matching deal for the selected name.", true);
-      return;
+      throw new Error("Could not find matching deal for the selected name.");
     }
 
     const dealUuid = matchedDeal.deal?.[0]?.uuid;
     if (!dealUuid) {
-      showMessage("Could not find deal UUID for the selected deal.", true);
+      throw new Error("Could not find deal UUID for the selected deal.");
+    }
+
+    return dealUuid;
+  }
+
+  // Main fetch function
+  async fetchData() {
+    console.log(`Fetch ${this.dataType} data function triggered`);
+
+    try {
+      const { selectedDealName, environment, loginResponseDataString } = this.validateRequirements();
+      const localData = this.getLocalData();
+      const dealUuid = this.getDealUuid(loginResponseDataString, selectedDealName);
+
+      // Prepare API request payload
+      const requestBody = {
+        environment: environment,
+        dealId: dealUuid,
+        [`${this.dataType}Data`]: localData,
+      };
+
+      console.log(`Sending API request with payload for ${this.dataType}:`, requestBody);
+
+      // Make API call
+      const response = await fetch(this.config.apiEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`Data after fetch for ${this.dataType}:`, data);
+        this.displayData(data);
+        this.showMessage(`${this.dataType} data fetched successfully!`);
+      } else {
+        const errorData = await response.text();
+        this.showMessage(`Failed to fetch data. Status: ${response.status}`, true);
+      }
+    } catch (error) {
+      console.error(`Error in fetch${this.dataType}Data:`, error);
+      this.showMessage(`An unexpected error occurred: ${error.message}`, true);
+    }
+  }
+
+  // Display data with change highlighting
+  displayData(response) {
+    const contentArea = document.getElementById("databaseContentArea");
+    if (!contentArea) return;
+
+    if (!response.success || !response.data) {
+      contentArea.innerHTML = '<div style="color:#dc3545;padding:4px 0;font-size:13px;">Error loading data</div>';
       return;
     }
 
-    // Prepare API request payload
-    const requestBody = {
-      environment: environment,
-      dealId: dealUuid,
-      representationData: representationData, // Include the representation data
-    };
+    // Save to localStorage
+    try {
+      localStorage.setItem(this.config.storageKey, JSON.stringify(response));
+      if (response.data.oldData) {
+        localStorage.setItem(this.config.oldDataKey, JSON.stringify(response.data.oldData));
+      }
+    } catch (e) {
+      console.warn("localStorage not available");
+    }
 
-    console.log("Sending API request with payload:", requestBody);
+    const { changedItems = [], newItems = [], hasChanges } = response.data;
+    let html = "";
 
-    // Make API call
-    const response = await fetch("http://localhost:3002/getRepsData", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
-    console.log("This is the api response for fetching the collection Data: ", response);
-    if (response.ok) {
-      const data = await response.json();
-      console.log("This is the data after fetch: ", data);
-      displayRepresentationData(data);
-      showMessage("Data fetched successfully!");
+    if (!hasChanges) {
+      html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
     } else {
-      const errorData = await response.text();
-      showMessage(`Failed to fetch data. Status: ${response.status}`, true);
+      // Changed items section
+      if (changedItems.length > 0) {
+        html += this.renderChangedItems(changedItems);
+      }
+
+      // New items section (for closing data)
+      if (newItems && newItems.length > 0) {
+        html += this.renderNewItems(newItems);
+      }
     }
-  } catch (error) {
-    console.error("Error in fetchRepresentationData:", error);
-    showMessage(`An unexpected error occurred: ${error.message}`, true);
-  }
-}
 
-function displayRepresentationData(response) {
-  const contentArea = document.getElementById("databaseContentArea");
-  if (!contentArea) return;
-
-  if (!response.success || !response.data) {
-    contentArea.innerHTML = '<div style="color:#dc3545;padding:4px 0;font-size:13px;">Error loading data</div>';
-    return;
+    contentArea.innerHTML = html;
   }
 
-  // Save to localStorage
-  try {
-    localStorage.setItem("lastRepresentationApiResponse", JSON.stringify(response));
-    if (response.data.oldData) {
-      localStorage.setItem("fetchedOldRepresentationData", JSON.stringify(response.data.oldData));
-    }
-  } catch (e) {
-    console.warn("localStorage not available");
+  // Render changed items
+  renderChangedItems(changedItems) {
+    const safeDataType = this.dataType.charAt(0).toUpperCase() + this.dataType.slice(1);
+
+    let html = `
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+      <div style="font-weight:600;font-size:13px;color:#333;">Modified (${changedItems.length})</div>
+      <button onclick="dataFetchers.${this.dataType}.replaceAllItems()" 
+              style="background-color:#dc3545;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;transition:all 0.2s;"
+              onmouseover="this.style.backgroundColor='#c82333';this.style.transform='translateY(-1px)'"
+              onmouseout="this.style.backgroundColor='#dc3545';this.style.transform='none'"
+              onmousedown="this.style.transform='translateY(1px)'"
+              onmouseup="this.style.transform='translateY(-1px)'">
+        Replace All
+      </button>
+    </div>
+  `;
+
+    changedItems.forEach((item) => {
+      const itemIdentifier = item[this.config.itemKey] || "No identifier";
+      const safeIdentifier = itemIdentifier.replace(/'/g, "\\'");
+
+      const previousContent = item[this.config.previousKey] || "";
+      const newContent = item[this.config.newKey] || "";
+
+      const highlighted = this.highlightDifferences(previousContent, newContent);
+
+      html += `
+      <div style="margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px;">
+        <div style="display:flex;align-items:center;margin-bottom:2px;">
+          <div style="font-weight:600;font-size:13px;color:#1a1a1a;">${itemIdentifier}</div>
+          <button onclick="dataFetchers.${this.dataType}.replaceSingleItem('${safeIdentifier}')" 
+                  style="margin-left:8px;background-color:#198754;color:#FFFFFF;border:none;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500;transition:all 0.2s;"
+                  onmouseover="this.style.backgroundColor='#198754';this.style.transform='translateY(-1px)'"
+                  onmouseout="this.style.backgroundColor='#115736ff';this.style.transform='none'"
+                  onmousedown="this.style.transform='translateY(1px)'"
+                  onmouseup="this.style.transform='translateY(-1px)'">
+            Replace
+          </button>
+        </div>
+        <div style="display:flex;gap:12px;font-size:13px;margin-top:0px;">
+          <div style="flex:1;border-right:1px solid #ddd;padding-right:8px;">
+            <div style="font-size:11px;color:#000000;margin-bottom:2px;font-weight:800;">Previous</div>
+            <div style="color:#1a1a1a;line-height:1.4;">${highlighted.oldText}</div>
+          </div>
+          <div style="flex:1;padding-left:8px;">
+            <div style="font-size:11px;color:#000000;margin-bottom:2px;font-weight:800;">Updated</div>
+            <div style="color:#1a1a1a;line-height:1.4;">${highlighted.newText}</div>
+          </div>
+        </div>
+      </div>
+    `;
+    });
+
+    return html;
   }
 
-  const { changedItems = [], hasChanges } = response.data;
-  let html = "";
-
-  if (!hasChanges) {
-    html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
-  } else {
-    html += `
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-        <div style="font-weight:600;font-size:13px;color:#333;">Modified (${changedItems.length})</div>
-        <button onclick="replaceWithOldData()" style="background:none;color:#dc3545;border:1px solid #dc3545;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:11px;">
-          Replace All
-        </button>
+  // Render new items (mainly for closing data)
+  renderNewItems(newItems) {
+    let html = `
+      <div style="margin-top:8px;font-weight:600;font-size:13px;margin-bottom:4px;">
+        New Items (${newItems.length})
       </div>
     `;
 
-    changedItems.forEach((item) => {
-      const safeArticle = item.article ? item.article.replace(/'/g, "\\'") : "";
-
-      const previousClause = item.previousClause || "";
-      const newClause = item.newClause || "";
-
-      // Function to highlight differences between two texts
-      const highlightDifferences = (oldText, newText) => {
-        const oldWords = oldText.split(/(\s+)/);
-        const newWords = newText.split(/(\s+)/);
-
-        let oldOutput = [];
-        let newOutput = [];
-
-        // Compare word by word
-        let i = 0,
-          j = 0;
-        while (i < oldWords.length || j < newWords.length) {
-          if (i < oldWords.length && j < newWords.length && oldWords[i] === newWords[j]) {
-            // Words match
-            oldOutput.push(oldWords[i]);
-            newOutput.push(newWords[j]);
-            i++;
-            j++;
-          } else {
-            // Words don't match
-            if (i < oldWords.length) {
-              oldOutput.push(`<span style="text-decoration:line-through;color:#a00;">${oldWords[i]}</span>`);
-              i++;
-            }
-            if (j < newWords.length) {
-              newOutput.push(`<span style="text-decoration:underline;color:#080;">${newWords[j]}</span>`);
-              j++;
-            }
-          }
-        }
-
-        return {
-          oldText: oldOutput.join(""),
-          newText: newOutput.join(""),
-        };
-      };
-
-      const highlighted = highlightDifferences(previousClause, newClause);
+    newItems.forEach((item) => {
+      const content = item[this.config.contentKey] || "No content";
+      const heading = item[this.config.itemKey] || "No heading";
 
       html += `
-        <div style="margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px;">
-          <div style="display:flex;align-items:center;margin-bottom:1px;">
-            <div style="font-weight:600;font-size:12px;color:#333;">${item.article || "No article"}</div>
-            <button onclick="replaceSingleItem('${safeArticle}')" style="margin-left:8px;background:none;color:#e6a700;border:1px solid #e6a700;padding:1px 4px;border-radius:2px;cursor:pointer;font-size:10px;">
-              Replace
-            </button>
-          </div>
-          <div style="display:flex;gap:8px;font-size:12px;margin-top:2px;">
-            <div style="flex:1;border-right:1px solid #ddd;padding-right:8px;">
-              <div style="font-size:10px;color:#666;margin-bottom:1px;">Previous</div>
-              <div style="color:#333;">${highlighted.oldText}</div>
-            </div>
-            <div style="flex:1;padding-left:8px;">
-              <div style="font-size:10px;color:#666;margin-bottom:1px;">Updated</div>
-              <div style="color:#333;">${highlighted.newText}</div>
-            </div>
+        <div style="margin-bottom:10px;border-bottom:1px solid #eee;padding-bottom:6px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:2px;color:#1a1a1a;">${heading}</div>
+          <div style="font-size:13px;color:#1a1a1a;margin-top:0px;line-height:1.4;">
+            ${content}
           </div>
         </div>
       `;
     });
+
+    return html;
   }
 
-  contentArea.innerHTML = html;
-}
-function replaceWithOldData() {
-  try {
-    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
-    const representation = localData.representation || [];
+  // Highlight differences between two texts
+  highlightDifferences(oldText, newText) {
+    const oldWords = oldText.split(/(\s+)/);
+    const newWords = newText.split(/(\s+)/);
 
-    const lastResponse = JSON.parse(localStorage.getItem("lastRepresentationApiResponse") || "{}");
-    const changedItems = lastResponse.data?.changedItems || [];
+    let oldOutput = [];
+    let newOutput = [];
 
-    if (!changedItems.length) {
-      showMessage("No changed items found.", true);
-      return;
-    }
-
-    let replaced = 0;
-
-    changedItems.forEach((changedItem) => {
-      const article = changedItem.article;
-      const previousClause = changedItem.previousClause;
-
-      const index = representation.findIndex((item) => item.key === article);
-      if (index !== -1 && previousClause) {
-        representation[index].value = previousClause;
-        replaced++;
+    let i = 0,
+      j = 0;
+    while (i < oldWords.length || j < newWords.length) {
+      if (i < oldWords.length && j < newWords.length && oldWords[i] === newWords[j]) {
+        oldOutput.push(oldWords[i]);
+        newOutput.push(newWords[j]);
+        i++;
+        j++;
+      } else {
+        if (i < oldWords.length) {
+          oldOutput.push(`<span style="text-decoration:line-through;color:#dc3545;">${oldWords[i]}</span>`);
+          i++;
+        }
+        if (j < newWords.length) {
+          newOutput.push(`<span style="text-decoration:underline;color:#28a745;">${newWords[j]}</span>`);
+          j++;
+        }
       }
-    });
-
-    localData.representation = representation;
-    localStorage.setItem("categoryData", JSON.stringify(localData));
-
-    // Sync updated localData to global categoryData
-    if (typeof categoryData !== "undefined") {
-      Object.assign(categoryData, localData);
     }
 
-    updateCategoryDisplay("representation");
+    return {
+      oldText: oldOutput.join(""),
+      newText: newOutput.join(""),
+    };
+  }
 
-    showMessage(`Replaced ${replaced} item(s) with previous clauses.`);
-    typeof fetchRepresentationData === "function" ? fetchRepresentationData() : location.reload();
-  } catch (error) {
-    console.error("Error in replaceWithOldData:", error);
-    showMessage("An error occurred while replacing data.", true);
+  // Replace all changed items with previous versions
+  replaceAllItems() {
+    try {
+      const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+      const dataArray = localData[this.config.dataKey] || [];
+
+      const lastResponse = JSON.parse(localStorage.getItem(this.config.storageKey) || "{}");
+      const changedItems = lastResponse.data?.changedItems || [];
+
+      if (!changedItems.length) {
+        this.showMessage("No changed items found.", true);
+        return;
+      }
+
+      let replaced = 0;
+
+      changedItems.forEach((changedItem) => {
+        const identifier = changedItem[this.config.itemKey];
+        const previousContent = changedItem[this.config.previousKey];
+
+        const index = dataArray.findIndex(
+          (item) => item.key === identifier || item[this.config.itemKey] === identifier
+        );
+
+        if (index !== -1 && previousContent) {
+          // Handle different data structures
+          if (dataArray[index].value !== undefined) {
+            dataArray[index].value = previousContent;
+          } else if (dataArray[index][this.config.contentKey] !== undefined) {
+            dataArray[index][this.config.contentKey] = previousContent;
+          }
+          replaced++;
+        }
+      });
+
+      localData[this.config.dataKey] = dataArray;
+      localStorage.setItem("categoryData", JSON.stringify(localData));
+
+      // Sync updated localData to global categoryData
+      if (typeof categoryData !== "undefined") {
+        Object.assign(categoryData, localData);
+      }
+
+      if (typeof updateCategoryDisplay === "function") {
+        updateCategoryDisplay(this.config.dataKey);
+      }
+
+      this.showMessage(`Replaced ${replaced} item(s) with previous values.`);
+      this.fetchData();
+    } catch (error) {
+      console.error(`Error in replaceAll${this.dataType}Items:`, error);
+      this.showMessage("An error occurred while replacing data.", true);
+    }
+  }
+
+  // Replace single item with previous version
+  replaceSingleItem(identifier) {
+    try {
+      const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
+      const dataArray = localData[this.config.dataKey] || [];
+
+      const lastResponse = JSON.parse(localStorage.getItem(this.config.storageKey) || "{}");
+      const changedItems = lastResponse.data?.changedItems || [];
+
+      const changedItem = changedItems.find((item) => item[this.config.itemKey] === identifier);
+      if (!changedItem?.[this.config.previousKey]) {
+        this.showMessage(`Previous ${this.config.contentKey} not found for this item.`, true);
+        return;
+      }
+
+      const index = dataArray.findIndex(
+        (item) => item[this.config.itemKey] === identifier || item.key === identifier || item.actionItem === identifier
+      );
+
+      if (index === -1) {
+        console.error(`Could not find ${identifier} in:`, dataArray);
+        this.showMessage(`Item "${identifier}" not found in current data.`, true);
+        return;
+      }
+
+      // Handle different data structures
+      if (dataArray[index].value !== undefined) {
+        dataArray[index].value = changedItem[this.config.previousKey];
+      } else if (dataArray[index][this.config.contentKey] !== undefined) {
+        dataArray[index][this.config.contentKey] = changedItem[this.config.previousKey];
+      }
+
+      localData[this.config.dataKey] = dataArray;
+      localStorage.setItem("categoryData", JSON.stringify(localData));
+
+      // Update global state if available
+      if (typeof categoryData !== "undefined") {
+        Object.assign(categoryData, localData);
+      }
+
+      if (typeof updateCategoryDisplay === "function") {
+        updateCategoryDisplay(this.config.dataKey);
+      }
+
+      this.showMessage(`Replaced "${identifier}" with previous version.`);
+      this.fetchData();
+    } catch (error) {
+      console.error("Replacement error:", error);
+      this.showMessage("Failed to replace item: " + error.message, true);
+    }
   }
 }
 
-function replaceSingleItem(article) {
-  try {
-    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
-    const representation = localData.representation || [];
+// Create global instances for different data types
+const dataFetchers = {
+  representation: new DataFetcher("representation"),
+  closing: new DataFetcher("closing"),
+};
 
-    const lastResponse = JSON.parse(localStorage.getItem("lastRepresentationApiResponse") || "{}");
-    const changedItems = lastResponse.data?.changedItems || [];
-
-    const changedItem = changedItems.find((item) => item.article === article);
-    if (!changedItem || !changedItem.previousClause) {
-      showMessage("Previous clause not found for this article.", true);
-      return;
-    }
-
-    const index = representation.findIndex((item) => item.key === article);
-    if (index === -1) {
-      showMessage("Article not found in current representation.", true);
-      return;
-    }
-
-    representation[index].value = changedItem.previousClause;
-    localData.representation = representation;
-    localStorage.setItem("categoryData", JSON.stringify(localData));
-
-    // Sync updated localData to global categoryData
-    if (typeof categoryData !== "undefined") {
-      Object.assign(categoryData, localData);
-    }
-
-    updateCategoryDisplay("representation");
-
-    showMessage(`Replaced "${article}" with previous clause.`);
-    typeof fetchRepresentationData === "function" ? fetchRepresentationData() : location.reload();
-  } catch (error) {
-    console.error("Error in replaceSingleItem:", error);
-    showMessage("An error occurred while replacing the item.", true);
-  }
+// Export the main functions for backward compatibility
+async function fetchRepresentationData() {
+  return dataFetchers.representation.fetchData();
 }
 
+async function fetchClosingData() {
+  return dataFetchers.closing.fetchData();
+}
+
+function displayRepresentationData(response) {
+  return dataFetchers.representation.displayData(response);
+}
+
+function displayClosingData(response) {
+  return dataFetchers.closing.displayData(response);
+}
+
+function replaceWithOldData() {
+  return dataFetchers.representation.replaceAllItems();
+}
+
+function replaceWithOldClosingData() {
+  return dataFetchers.closing.replaceAllItems();
+}
+
+function replaceSingleItem(identifier) {
+  return dataFetchers.representation.replaceSingleItem(identifier);
+}
+
+function replaceSingleClosingItem(identifier) {
+  return dataFetchers.closing.replaceSingleItem(identifier);
+}
+
+// Standalone showMessage function for backward compatibility
 function showMessage(msg, isError = false) {
   const contentArea = document.getElementById("databaseContentArea") || document.body;
 
@@ -805,321 +979,4 @@ function showMessage(msg, isError = false) {
   contentArea.prepend(div);
 
   setTimeout(() => div.remove(), 4000);
-}
-
-// This is the code i am adding for fetching the data of closing checklist
-async function fetchClosingData() {
-  console.log("Fetch closing data function triggered");
-
-  // Helper function to display messages
-  const showMessage = (message, isError = false) => {
-    console.log(isError ? `Error: ${message}` : `Success: ${message}`);
-  };
-
-  try {
-    // Check for required UI elements and selections
-    const dealSelect = document.getElementById("dealSelect");
-    if (!dealSelect) {
-      showMessage("Deal selection not found.", true);
-      return;
-    }
-
-    const selectedDealName = dealSelect.options[dealSelect.selectedIndex]?.text;
-    if (!selectedDealName) {
-      showMessage("Please select a deal first.", true);
-      return;
-    }
-
-    // Get required data from localStorage
-    const environment = localStorage.getItem("selectedEnvironment");
-    if (!environment) {
-      showMessage("Environment not found. Please login again.", true);
-      return;
-    }
-
-    const loginResponseDataString = localStorage.getItem("loginResponseData");
-    if (!loginResponseDataString) {
-      showMessage("Deal data not found in local storage.", true);
-      return;
-    }
-
-    // Get closing data from localStorage
-    const categoryDataString = localStorage.getItem("categoryData");
-    let closingData = [];
-
-    if (categoryDataString) {
-      try {
-        const categoryData = JSON.parse(categoryDataString);
-        closingData = categoryData.closing || [];
-        console.log("Found closing data in localStorage:", closingData);
-      } catch (e) {
-        console.error("Error parsing categoryData:", e);
-      }
-    }
-
-    // Find deal UUID from login data
-    const loginResponseData = JSON.parse(loginResponseDataString);
-    const dealsArray = loginResponseData.userDetails?.tenantId || [];
-    const matchedDeal = dealsArray.find((deal) => deal.name === selectedDealName);
-
-    if (!matchedDeal) {
-      showMessage("Could not find matching deal for the selected name.", true);
-      return;
-    }
-
-    const dealUuid = matchedDeal.deal?.[0]?.uuid;
-    if (!dealUuid) {
-      showMessage("Could not find deal UUID for the selected deal.", true);
-      return;
-    }
-
-    // Prepare API request payload
-    const requestBody = {
-      environment: environment,
-      dealId: dealUuid,
-      closingData: closingData, // Include the closing data
-    };
-
-    console.log("Sending API request with payload:", requestBody);
-
-    // Make API call
-    const response = await fetch("http://localhost:3002/getClosingData", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      console.log("This is the data after fetch: ", data);
-      displayClosingData(data);
-      showMessage("Closing data fetched successfully!");
-    } else {
-      const errorData = await response.text();
-      showMessage(`Failed to fetch data. Status: ${response.status}`, true);
-    }
-  } catch (error) {
-    console.error("Error in fetchClosingData:", error);
-    showMessage(`An unexpected error occurred: ${error.message}`, true);
-  }
-}
-
-function displayClosingData(response) {
-  const contentArea = document.getElementById("databaseContentArea");
-  if (!contentArea) return;
-
-  if (!response.success || !response.data) {
-    contentArea.innerHTML = '<div style="color:#dc3545;padding:4px 0;font-size:13px;">Error loading data</div>';
-    return;
-  }
-
-  // Save to localStorage
-  try {
-    localStorage.setItem("lastClosingApiResponse", JSON.stringify(response));
-    if (response.data.oldData) {
-      localStorage.setItem("fetchedOldClosingData", JSON.stringify(response.data.oldData));
-    }
-  } catch (e) {
-    console.warn("localStorage not available");
-  }
-
-  const { changedItems = [], newItems = [], hasChanges } = response.data;
-  let html = "";
-
-  if (!hasChanges) {
-    html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
-  } else {
-    // Changed items section
-    if (changedItems.length > 0) {
-      html += `
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <div style="font-weight:600;font-size:13px;">Modified (${changedItems.length})</div>
-          <button onclick="replaceWithOldClosingData()" style="background:none;color:#dc3545;border:1px solid #dc3545;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:11px;">
-            Replace All
-          </button>
-        </div>
-      `;
-
-      changedItems.forEach((item) => {
-        const safeSectionHeading = item.sectionHeading ? item.sectionHeading.replace(/'/g, "\\'") : "";
-
-        const previousContent = item.previousContent || "";
-        const newContent = item.newContent || "";
-
-        // Function to highlight differences between two texts
-        const highlightDifferences = (oldText, newText) => {
-          const oldWords = oldText.split(/(\s+)/);
-          const newWords = newText.split(/(\s+)/);
-
-          let oldOutput = [];
-          let newOutput = [];
-
-          // Compare word by word
-          let i = 0,
-            j = 0;
-          while (i < oldWords.length || j < newWords.length) {
-            if (i < oldWords.length && j < newWords.length && oldWords[i] === newWords[j]) {
-              // Words match
-              oldOutput.push(oldWords[i]);
-              newOutput.push(newWords[j]);
-              i++;
-              j++;
-            } else {
-              // Words don't match
-              if (i < oldWords.length) {
-                oldOutput.push(`<span style="text-decoration:line-through;color:#dc3545;">${oldWords[i]}</span>`);
-                i++;
-              }
-              if (j < newWords.length) {
-                newOutput.push(`<span style="text-decoration:underline;color:#28a745;">${newWords[j]}</span>`);
-                j++;
-              }
-            }
-          }
-
-          return {
-            oldText: oldOutput.join(""),
-            newText: newOutput.join(""),
-          };
-        };
-
-        const highlighted = highlightDifferences(previousContent, newContent);
-
-        html += `
-          <div style="margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:8px;">
-            <div style="display:flex;align-items:center;margin-bottom:1px;">
-              <div style="font-weight:600;font-size:12px;">${item.sectionHeading || "No heading"}</div>
-              <button onclick="replaceSingleClosingItem('${safeSectionHeading}')" style="margin-left:8px;background:none;color:#ffc107;border:1px solid #ffc107;padding:1px 4px;border-radius:2px;cursor:pointer;font-size:10px;">
-                Replace
-              </button>
-            </div>
-            <div style="display:flex;gap:8px;font-size:12px;margin-top:2px;">
-              <div style="flex:1;border-right:1px solid #ddd;padding-right:8px;">
-                <div style="font-size:10px;color:#888;margin-bottom:1px;">Previous</div>
-                <div>${highlighted.oldText}</div>
-              </div>
-              <div style="flex:1;padding-left:8px;">
-                <div style="font-size:10px;color:#888;margin-bottom:1px;">Updated</div>
-                <div>${highlighted.newText}</div>
-              </div>
-            </div>
-          </div>
-        `;
-      });
-    }
-
-    // New items section
-    if (newItems.length > 0) {
-      html += `
-        <div style="margin-top:8px;font-weight:600;font-size:13px;margin-bottom:4px;">
-          New Items (${newItems.length})
-        </div>
-      `;
-      newItems.forEach((item) => {
-        const content = item.content || "No content";
-        html += `
-          <div style="margin-bottom:8px;border-bottom:1px solid #eee;padding-bottom:6px;">
-            <div style="font-weight:600;font-size:12px;margin-bottom:1px;">${item.sectionHeading || "No heading"}</div>
-            <div style="font-size:12px;color:#28a745;margin-top:1px;">
-              ${content}
-            </div>
-          </div>
-        `;
-      });
-    }
-  }
-
-  contentArea.innerHTML = html;
-}
-function replaceWithOldClosingData() {
-  try {
-    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
-    const closing = localData.closing || [];
-
-    const lastResponse = JSON.parse(localStorage.getItem("lastClosingApiResponse") || "{}");
-    const changedItems = lastResponse.data?.changedItems || [];
-
-    if (!changedItems.length) {
-      showMessage("No changed items found.", true);
-      return;
-    }
-
-    let replaced = 0;
-
-    changedItems.forEach((changedItem) => {
-      const sectionHeading = changedItem.sectionHeading;
-      const previousContent = changedItem.previousContent;
-
-      const index = closing.findIndex((item) => item.key === sectionHeading);
-      if (index !== -1 && previousContent) {
-        closing[index].value = previousContent;
-        replaced++;
-      }
-    });
-
-    localData.closing = closing;
-    localStorage.setItem("categoryData", JSON.stringify(localData));
-
-    // Sync updated localData to global categoryData
-    if (typeof categoryData !== "undefined") {
-      Object.assign(categoryData, localData);
-    }
-
-    updateCategoryDisplay("closing");
-
-    showMessage(`Replaced ${replaced} item(s) with previous values.`);
-    typeof fetchClosingData === "function" ? fetchClosingData() : location.reload();
-  } catch (error) {
-    console.error("Error in replaceWithOldClosingData:", error);
-    showMessage("An error occurred while replacing data.", true);
-  }
-}
-
-function replaceSingleClosingItem(sectionHeading) {
-  try {
-    const localData = JSON.parse(localStorage.getItem("categoryData") || "{}");
-    const closing = localData.closing || [];
-
-    const lastResponse = JSON.parse(localStorage.getItem("lastClosingApiResponse") || "{}");
-    const changedItems = lastResponse.data?.changedItems || [];
-
-    const changedItem = changedItems.find((item) => item.sectionHeading === sectionHeading);
-    if (!changedItem?.previousContent) {
-      showMessage("Previous content not found for this section.", true);
-      return;
-    }
-
-    // Try multiple possible matching strategies
-    const index = closing.findIndex(
-      (item) =>
-        item.sectionHeading === sectionHeading || // First try direct match
-        item.key === sectionHeading || // Fallback to key match
-        item.actionItem === sectionHeading // Another possible field name
-    );
-
-    if (index === -1) {
-      console.error("Could not find section in:", closing);
-      showMessage(`Section "${sectionHeading}" not found in current data.`, true);
-      return;
-    }
-
-    // Perform the replacement
-    closing[index].content = changedItem.previousContent;
-    localData.closing = closing;
-    localStorage.setItem("categoryData", JSON.stringify(localData));
-
-    // Update global state if available
-    if (typeof categoryData !== "undefined") {
-      Object.assign(categoryData, localData);
-    }
-
-    updateCategoryDisplay("closing");
-    showMessage(`Replaced "${sectionHeading}" with previous version.`);
-    fetchClosingData();
-  } catch (error) {
-    console.error("Replacement error:", error);
-    showMessage("Failed to replace item: " + error.message, true);
-  }
 }
