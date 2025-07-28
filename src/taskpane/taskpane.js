@@ -539,6 +539,7 @@ async function getListInfoFromSelection() {
 
         localStorage.setItem("categoryData", JSON.stringify(updatedData));
         updateCategoryDisplay(selectedCategory);
+        handleCategoryChange();
         showCopyMessage(true, "Content added successfully!");
       } else {
         console.log("No new selections to add");

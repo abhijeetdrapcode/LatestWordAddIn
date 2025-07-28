@@ -1,8 +1,9 @@
 console.log("dealDriver.js loaded");
 
 // let selectedCategory = "";
-let selectedCategory = localStorage.getItem("selectedCategory") || "repsAndWarranty";
-
+// let selectedCategory = localStorage.getItem("selectedCategory") || "repsAndWarranty";
+let selectedCategory = "representation";
+console.log("This is the selectedCategory: ", selectedCategory);
 window.selectedCategory = selectedCategory;
 let isLoggedIn = false;
 let loginResponseData = null;
@@ -105,20 +106,46 @@ function initDealDriverIntegration() {
 function initPostLoginElements() {
   // Now that user is logged in, get references to elements that were hidden
   dealSelect = document.getElementById("dealSelect");
-  sendDealButton = document.getElementById("sendDealButton");
   fetchDataButton = document.getElementById("fetchDataButton");
+  sendDealButton = document.getElementById("sendDealButton");
 
   // Add event listeners for post-login functionality
   if (sendDealButton) {
+    let isSending = false; // Track if we're already sending
+
     sendDealButton.addEventListener("click", async () => {
-      await handleSendDeal();
+      if (isSending) return;
+      isSending = true;
+
+      try {
+        await handleSendDeal();
+      } finally {
+        isSending = false;
+      }
     });
   }
 
+  let isFetching = false;
+
   if (fetchDataButton) {
     fetchDataButton.addEventListener("click", async () => {
-      // await fetchRepresentationData();
-      await fetchClosingData();
+      if (isFetching) return;
+      isFetching = true;
+      fetchDataButton.disabled = true;
+
+      try {
+        let categoryFromSelection = localStorage.getItem("selectedCategory");
+        if (categoryFromSelection === "representation") {
+          await fetchRepresentationData();
+        } else if (categoryFromSelection === "closing") {
+          await fetchClosingData();
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      } finally {
+        isFetching = false;
+        fetchDataButton.disabled = false;
+      }
     });
   }
 
@@ -130,16 +157,47 @@ function initPostLoginElements() {
 }
 
 function handleLogout() {
+  // const sendDealButton = document.getElementById("sendDealButton");
+  // if (sendDealButton && sendDealButtonListener) {
+  //   sendDealButton.removeEventListener("click", sendDealButtonListener);
+  //   sendDealButtonListener = null;
+  // }
   isLoggedIn = false;
   loginResponseData = null;
   selectedEnvironment = null;
 
   // Clear localStorage
-  localStorage.removeItem("authToken");
-  localStorage.removeItem("loginResponseData");
-  localStorage.removeItem("selectedEnvironment");
-  localStorage.removeItem("selectedDealId");
-  localStorage.removeItem("categoryData");
+  // localStorage.removeItem("authToken");
+  // localStorage.removeItem("loginResponseData");
+  // localStorage.removeItem("selectedEnvironment");
+  // localStorage.removeItem("selectedDealId");
+  // localStorage.removeItem("categoryData");
+  // localStorage.removeItem("lastRepresentationApiResponse");
+  // localStorage.removeItem("lastClosingApiResponse");
+  // categoryData = {
+  //   closing: [],
+  //   postClosing: [],
+  //   representation: [],
+  // };
+
+  localStorage.clear();
+
+  // Reset global variables
+  window.categoryData = {
+    closing: [],
+    postClosing: [],
+    representation: [],
+  };
+
+  document.getElementById("mainContent").classList.add("hidden");
+  document.querySelectorAll(".content-area").forEach((el) => {
+    el.innerHTML = "<p>No content available</p>";
+  });
+
+  // Remove any active classes
+  document.querySelectorAll(".category-content").forEach((el) => {
+    el.classList.remove("active");
+  });
 
   // Update UI
   const loginButton = document.getElementById("loginButton");
@@ -161,6 +219,8 @@ async function handleLogin(userName, password) {
     const environmentSelect = document.getElementById("environmentSelect");
     selectedEnvironment = environmentSelect.value;
     localStorage.setItem("selectedEnvironment", selectedEnvironment);
+    let categorySelected = "representation";
+    localStorage.setItem("selectedCategory", "representation");
 
     const apiUrl =
       selectedEnvironment === "production"
@@ -223,7 +283,16 @@ function populateDealDropdown(dealNames) {
   });
 }
 
+// Add this at the top of your file (global scope)
+let isApiCallInProgress = false;
+
 async function handleSendDeal() {
+  // 1. Check if API call is already in progress
+  if (isApiCallInProgress) {
+    console.log("API call already in progress - ignoring duplicate request");
+    return;
+  }
+
   if (!dealSelect || !sendDealButton) {
     console.error("Required elements not available");
     return;
@@ -232,12 +301,15 @@ async function handleSendDeal() {
   const messageElement = ensureMessageElementExists();
   const showMessage = createMessageHandler(messageElement);
 
-  // Disable the send button during processing
-  sendDealButton.disabled = true;
-  sendDealButton.style.opacity = "0.5";
-  sendDealButton.style.cursor = "not-allowed";
+  // 2. Set the flag immediately when starting
+  isApiCallInProgress = true;
 
   try {
+    // Disable the send button during processing
+    sendDealButton.disabled = true;
+    sendDealButton.style.opacity = "0.5";
+    sendDealButton.style.cursor = "not-allowed";
+
     const selectedDealName = dealSelect.options[dealSelect.selectedIndex].text;
     selectedCategory = document.getElementById("categorySelect").value;
     const loginResponseDataString = localStorage.getItem("loginResponseData");
@@ -264,6 +336,10 @@ async function handleSendDeal() {
       return;
     }
 
+    // 3. Add debug logs to track API calls
+    console.log("Starting API call process at:", new Date().toISOString());
+    console.log("Selected category:", selectedCategory);
+
     const dealSettingData = await fetch(
       `${baseUrl}/api/v1/developer/collection/user_setting/item/${matchedDealSettingUUID}`
     );
@@ -280,6 +356,9 @@ async function handleSendDeal() {
     const dealUuid = matchedDeal.deal[0].uuid;
     localStorage.setItem("selectedDealId", dealUuid);
     const tenantId = loginResponseData.tenant.uuid;
+
+    // 4. Track which API is being called
+    console.log("Preparing to call API for:", selectedCategory);
 
     if (selectedCategory === "closing") {
       await sendClosingData(
@@ -312,10 +391,15 @@ async function handleSendDeal() {
         showMessage
       );
     }
+
+    console.log("API call completed successfully at:", new Date().toISOString());
   } catch (error) {
+    console.error("API call failed:", error);
     showMessage("Error sending deal", true);
-    console.error("Error sending deal:", error);
   } finally {
+    // 5. Always reset the flag and button state
+    isApiCallInProgress = false;
+
     if (sendDealButton) {
       sendDealButton.disabled = false;
       sendDealButton.style.opacity = "1";
@@ -394,7 +478,7 @@ async function sendClosingData(dealUuid, tenantId, environment, permissions, cat
       permissionsHeader = permissions.join(",");
     }
 
-    const response = await fetch("http://localhost:3002/addClosingData", {
+    const response = await fetch("https://dealdriverapi.drapcode.co/addClosingData", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -469,7 +553,7 @@ async function sendRepresentationData(dealUuid, tenantId, environment, permissio
     }, {});
 
     console.log("This is the data i am sending : ", formattedcategoryData);
-    const response = await fetch("http://localhost:3002/parseWord", {
+    const response = await fetch("https://dealdriverapi.drapcode.co/parseWord", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -515,7 +599,7 @@ class DataFetcher {
   getConfig(dataType) {
     const configs = {
       representation: {
-        apiEndpoint: "http://localhost:3002/getRepsData",
+        apiEndpoint: "https://dealdriverapi.drapcode.co/getRepsData",
         dataKey: "representation",
         storageKey: "lastRepresentationApiResponse",
         oldDataKey: "fetchedOldRepresentationData",
@@ -525,7 +609,7 @@ class DataFetcher {
         newKey: "newClause",
       },
       closing: {
-        apiEndpoint: "http://localhost:3002/getClosingData",
+        apiEndpoint: "https://dealdriverapi.drapcode.co/getClosingData",
         dataKey: "closing",
         storageKey: "lastClosingApiResponse",
         oldDataKey: "fetchedOldClosingData",
