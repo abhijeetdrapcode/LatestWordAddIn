@@ -109,44 +109,58 @@ function initPostLoginElements() {
   fetchDataButton = document.getElementById("fetchDataButton");
   sendDealButton = document.getElementById("sendDealButton");
 
-  // Add event listeners for post-login functionality
-  if (sendDealButton) {
-    let isSending = false; // Track if we're already sending
+  // Define the send deal handler function
+  sendDealButtonHandler = async () => {
+    // Use the existing isApiCallInProgress flag from your handleSendDeal function
+    if (isApiCallInProgress) return;
 
-    sendDealButton.addEventListener("click", async () => {
-      if (isSending) return;
-      isSending = true;
+    try {
+      await handleSendDeal();
+    } catch (error) {
+      console.error("Error in sendDealButtonHandler:", error);
+    }
+  };
 
-      try {
-        await handleSendDeal();
-      } finally {
-        isSending = false;
-      }
-    });
-  }
+  // Define the fetch data handler function
+  fetchDataButtonHandler = async () => {
+    // Create local isFetching flag for this specific handler
+    if (fetchDataButtonHandler.isFetching) return;
+    fetchDataButtonHandler.isFetching = true;
 
-  let isFetching = false;
-
-  if (fetchDataButton) {
-    fetchDataButton.addEventListener("click", async () => {
-      if (isFetching) return;
-      isFetching = true;
+    if (fetchDataButton) {
       fetchDataButton.disabled = true;
+    }
 
-      try {
-        let categoryFromSelection = localStorage.getItem("selectedCategory");
-        if (categoryFromSelection === "representation") {
-          await fetchRepresentationData();
-        } else if (categoryFromSelection === "closing") {
-          await fetchClosingData();
-        }
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      } finally {
-        isFetching = false;
+    try {
+      let categoryFromSelection = localStorage.getItem("selectedCategory");
+      if (categoryFromSelection === "representation") {
+        await fetchRepresentationData();
+      } else if (categoryFromSelection === "closing") {
+        await fetchClosingData();
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      fetchDataButtonHandler.isFetching = false;
+      if (fetchDataButton) {
         fetchDataButton.disabled = false;
       }
-    });
+    }
+  };
+
+  // Remove any existing event listeners before adding new ones
+  if (sendDealButton) {
+    if (sendDealButtonHandler) {
+      sendDealButton.removeEventListener("click", sendDealButtonHandler);
+    }
+    sendDealButton.addEventListener("click", sendDealButtonHandler);
+  }
+
+  if (fetchDataButton) {
+    if (fetchDataButtonHandler) {
+      fetchDataButton.removeEventListener("click", fetchDataButtonHandler);
+    }
+    fetchDataButton.addEventListener("click", fetchDataButtonHandler);
   }
 
   // Show main content
@@ -155,40 +169,40 @@ function initPostLoginElements() {
     mainContent.classList.remove("hidden");
   }
 }
+// Add these variables at the top of your file (global scope)
+let sendDealButtonHandler = null;
+let fetchDataButtonHandler = null;
 
+// Updated handleLogout function
 function handleLogout() {
-  // const sendDealButton = document.getElementById("sendDealButton");
-  // if (sendDealButton && sendDealButtonListener) {
-  //   sendDealButton.removeEventListener("click", sendDealButtonListener);
-  //   sendDealButtonListener = null;
-  // }
+  // Remove event listeners first, before clearing element references
+  if (fetchDataButton && fetchDataButtonHandler) {
+    fetchDataButton.removeEventListener("click", fetchDataButtonHandler);
+  }
+  if (sendDealButton && sendDealButtonHandler) {
+    sendDealButton.removeEventListener("click", sendDealButtonHandler);
+  }
+
+  // Reset handler references
+  fetchDataButtonHandler = null;
+  sendDealButtonHandler = null;
+
+  // Reset global state
   isLoggedIn = false;
   loginResponseData = null;
   selectedEnvironment = null;
 
   // Clear localStorage
-  // localStorage.removeItem("authToken");
-  // localStorage.removeItem("loginResponseData");
-  // localStorage.removeItem("selectedEnvironment");
-  // localStorage.removeItem("selectedDealId");
-  // localStorage.removeItem("categoryData");
-  // localStorage.removeItem("lastRepresentationApiResponse");
-  // localStorage.removeItem("lastClosingApiResponse");
-  // categoryData = {
-  //   closing: [],
-  //   postClosing: [],
-  //   representation: [],
-  // };
-
   localStorage.clear();
 
-  // Reset global variables
-  window.categoryData = {
+  // Reset category data
+  categoryData = {
     closing: [],
     postClosing: [],
     representation: [],
   };
 
+  // Hide and reset UI elements
   document.getElementById("mainContent").classList.add("hidden");
   document.querySelectorAll(".content-area").forEach((el) => {
     el.innerHTML = "<p>No content available</p>";
@@ -199,7 +213,7 @@ function handleLogout() {
     el.classList.remove("active");
   });
 
-  // Update UI
+  // Update UI elements
   const loginButton = document.getElementById("loginButton");
   const dealOptions = document.getElementById("dealOptions");
   const mainContent = document.getElementById("mainContent");
@@ -213,7 +227,6 @@ function handleLogout() {
   sendDealButton = null;
   fetchDataButton = null;
 }
-
 async function handleLogin(userName, password) {
   try {
     const environmentSelect = document.getElementById("environmentSelect");
@@ -767,7 +780,7 @@ class DataFetcher {
     const { changedItems = [], newItems = [], hasChanges } = response.data;
     let html = "";
 
-    if (!hasChanges) {
+    if (!hasChanges || changedItems.length == 0) {
       html = '<div style="color:#28a745;padding:4px 0;font-size:13px;">No changes</div>';
     } else {
       // Changed items section
@@ -776,9 +789,9 @@ class DataFetcher {
       }
 
       // New items section (for closing data)
-      if (newItems && newItems.length > 0) {
-        html += this.renderNewItems(newItems);
-      }
+      // if (newItems && newItems.length > 0) {
+      //   html += this.renderNewItems(newItems);
+      // }
     }
 
     contentArea.innerHTML = html;
