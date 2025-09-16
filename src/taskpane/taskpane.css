@@ -124,7 +124,7 @@ button:disabled {
 
 .content-sections {
   width: 100%;
-  max-width: 600px;
+  /* max-width: 600px; */
   margin-top: 15px;
 }
 
@@ -625,7 +625,7 @@ label[for="dealSelect"] {
 .existing-content .item-header button {
   margin-left: 8px;
   background-color: #198754;
-  color: #FFFFFF;
+  color: #ffffff;
   border: none;
   padding: 3px 6px;
   border-radius: 4px;

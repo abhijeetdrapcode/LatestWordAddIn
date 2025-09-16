@@ -880,36 +880,92 @@ class DataFetcher {
   }
 
   // Highlight differences between two texts
-  highlightDifferences(oldText, newText) {
-    const oldWords = oldText.split(/(\s+)/);
-    const newWords = newText.split(/(\s+)/);
+  // Put this method inside your class (replaces the old highlightDifferences)
+  highlightDifferences(oldText = "", newText = "") {
+    // escape HTML to avoid breaking the layout or XSS
+    const escapeHtml = (s) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 
-    let oldOutput = [];
-    let newOutput = [];
+    // Split into word tokens (splits on whitespace). This keeps things simple.
+    const oldTokens = oldText.trim() === "" ? [] : oldText.match(/\S+/g) || [];
+    const newTokens = newText.trim() === "" ? [] : newText.match(/\S+/g) || [];
 
-    let i = 0,
-      j = 0;
-    while (i < oldWords.length || j < newWords.length) {
-      if (i < oldWords.length && j < newWords.length && oldWords[i] === newWords[j]) {
-        oldOutput.push(oldWords[i]);
-        newOutput.push(newWords[j]);
-        i++;
-        j++;
-      } else {
-        if (i < oldWords.length) {
-          oldOutput.push(`<span style="text-decoration:line-through;color:#dc3545;">${oldWords[i]}</span>`);
-          i++;
-        }
-        if (j < newWords.length) {
-          newOutput.push(`<span style="text-decoration:underline;color:#28a745;">${newWords[j]}</span>`);
-          j++;
-        }
+    const m = oldTokens.length;
+    const n = newTokens.length;
+
+    // Build LCS table (m+1) x (n+1)
+    const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (oldTokens[i - 1] === newTokens[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+        else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
       }
     }
 
+    // Backtrack to find the matching token positions (in reverse)
+    const matches = [];
+    let i = m,
+      j = n;
+    while (i > 0 && j > 0) {
+      if (oldTokens[i - 1] === newTokens[j - 1]) {
+        matches.push([i - 1, j - 1]); // matched token indices
+        i--;
+        j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+    matches.reverse(); // now in ascending order
+
+    // Build highlighted outputs by walking through matches
+    let oldOut = [];
+    let newOut = [];
+    let prevA = 0;
+    let prevB = 0;
+
+    const pushDeleted = (start, end) => {
+      for (let k = start; k < end; k++) {
+        oldOut.push(`<span style="text-decoration:line-through;color:#dc3545;">${escapeHtml(oldTokens[k])}</span>`);
+      }
+    };
+    const pushInserted = (start, end) => {
+      for (let k = start; k < end; k++) {
+        newOut.push(`<span style="text-decoration:underline;color:#28a745;">${escapeHtml(newTokens[k])}</span>`);
+      }
+    };
+    const pushUnchanged = (aIdx, bIdx) => {
+      // tokens are equal
+      const token = escapeHtml(oldTokens[aIdx]);
+      oldOut.push(token);
+      newOut.push(token);
+    };
+
+    for (const [aIdx, bIdx] of matches) {
+      // any deletes in old between prevA..aIdx-1
+      if (aIdx > prevA) pushDeleted(prevA, aIdx);
+      // any inserts in new between prevB..bIdx-1
+      if (bIdx > prevB) pushInserted(prevB, bIdx);
+      // matched token
+      pushUnchanged(aIdx, bIdx);
+      prevA = aIdx + 1;
+      prevB = bIdx + 1;
+    }
+
+    // tail leftovers
+    if (prevA < m) pushDeleted(prevA, m);
+    if (prevB < n) pushInserted(prevB, n);
+
+    // Join with a single space between tokens (keeps text readable)
     return {
-      oldText: oldOutput.join(""),
-      newText: newOutput.join(""),
+      oldText: oldOut.join(" "),
+      newText: newOut.join(" "),
     };
   }
 
