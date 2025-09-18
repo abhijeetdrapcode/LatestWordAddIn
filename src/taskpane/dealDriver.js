@@ -369,6 +369,8 @@ async function handleSendDeal() {
     const dealUuid = matchedDeal.deal[0].uuid;
     localStorage.setItem("selectedDealId", dealUuid);
     const tenantId = loginResponseData.tenant.uuid;
+    console.log("THis is the tenantID: ", tenantId);
+    console.log("This is the tenant : ", loginResponseData.tenant);
 
     // 4. Track which API is being called
     console.log("Preparing to call API for:", selectedCategory);

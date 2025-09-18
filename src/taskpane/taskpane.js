@@ -129,8 +129,8 @@ function normalizeText(text) {
     .trim()
     .replace(/^\.\s*/, "")
     .replace(/\s+/g, " ")
-    .replace(/[^\x20-\x7E]/g, "")
-    .toLowerCase();
+    .replace(/[^\x20-\x7E]/g, "");
+  // .toLowerCase();
 }
 
 async function loadAllParagraphsData() {
